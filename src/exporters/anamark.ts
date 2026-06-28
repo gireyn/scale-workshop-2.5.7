@@ -1,29 +1,27 @@
-import { mtof, valueToCents } from 'xen-dev-utils/conversion'
-import { APP_TITLE, NEWLINE_TEST } from '@/constants'
+import { APP_TITLE } from '@/constants'
 import { BaseExporter, type ExporterParams } from '@/exporters/base'
-
-function sanitizeQuotedTunValue(value: string | undefined) {
-  return (value ?? '').replaceAll('"', '“').replace(/\r?\n|\r/g, ' ')
-}
+import { mtof, valueToCents } from 'xen-dev-utils'
 
 class AnaMarkExporter extends BaseExporter {
   static tuningMaxSize = 128
   static baseFrequency = mtof(0)
 
+  params: ExporterParams
   version: number
   appTitle: string
   date: Date
-  sourceText: string
+  lines: string[]
 
   constructor(params: ExporterParams, version: number) {
-    super(params)
-    if (params.sourceText === undefined) {
+    if (params.lines === undefined) {
       throw new Error('Missing text lines')
     }
+    super()
+    this.params = params
     this.version = version
     this.appTitle = params.appTitle || APP_TITLE
     this.date = params.date || new Date()
-    this.sourceText = params.sourceText
+    this.lines = params.lines
   }
 
   getFileContents() {
@@ -32,13 +30,12 @@ class AnaMarkExporter extends BaseExporter {
 
     // Assemble the .tun file contents:
     const newline = this.params.newline
-    const intervals = this.params.relativeIntervals
     const scale = this.params.scale
     const filename = this.params.filename
 
     // Comment section
     let file = '; VAZ Plus/AnaMark softsynth tuning file' + newline
-    file += '; ' + this.params.scale.title + newline
+    file += '; ' + this.params.name + newline
     file += ';' + newline
 
     // If version 200 or higher, display the scale URL so user can easily get back to the original scale that generates this tun file.
@@ -49,9 +46,9 @@ class AnaMarkExporter extends BaseExporter {
     }
     // If version before 200 and URL is too long, fall back to an alternative way of displaying the original scale data.
     else {
-      for (const line of this.sourceText.split(NEWLINE_TEST)) {
+      this.lines.forEach((line) => {
         file += '; ' + line + newline
-      }
+      })
     }
 
     file += ';' + newline
@@ -59,7 +56,7 @@ class AnaMarkExporter extends BaseExporter {
     file += '[Tuning]' + newline
 
     for (let i = 0; i < AnaMarkExporter.tuningMaxSize; i++) {
-      const freq = scale.getFrequency(i)
+      const freq = scale.getFrequency(i - this.params.baseMidiNote)
       const cents = valueToCents(freq / AnaMarkExporter.baseFrequency)
       file += 'note ' + i.toString() + '=' + Math.round(cents).toString() + newline
     }
@@ -71,16 +68,16 @@ class AnaMarkExporter extends BaseExporter {
     file +=
       'FormatSpecs= "http://www.mark-henning.de/eternity/tuningspecs.html"' + newline + newline
     file += '[Info]' + newline
-    file += 'Name= "' + sanitizeQuotedTunValue(filename) + '.tun"' + newline
-    file += 'ID= "' + sanitizeQuotedTunValue(filename).replace(/ /g, '') + '.tun"' + newline // this line strips whitespace from filename, as per .tun spec
-    file += 'Filename= "' + sanitizeQuotedTunValue(filename) + '.tun"' + newline
-    file += 'Description= "' + sanitizeQuotedTunValue(this.params.description) + '"' + newline
+    file += 'Name= "' + filename + '.tun"' + newline
+    file += 'ID= "' + filename.replace(/ /g, '') + '.tun"' + newline // this line strips whitespace from filename, as per .tun spec
+    file += 'Filename= "' + filename + '.tun"' + newline
+    file += 'Description= "' + this.params.description + '"' + newline
     file += 'Date= "' + this.date.toISOString().slice(0, 10) + '"' + newline
-    file += 'Editor= "' + sanitizeQuotedTunValue(this.appTitle) + '"' + newline + newline
+    file += 'Editor= "' + this.appTitle + '"' + newline + newline
     file += '[Exact Tuning]' + newline
 
     for (let i = 0; i < AnaMarkExporter.tuningMaxSize; i++) {
-      const freq = scale.getFrequency(i)
+      const freq = scale.getFrequency(i - this.params.baseMidiNote)
       const cents = valueToCents(freq / AnaMarkExporter.baseFrequency)
       file += 'note ' + i + '= ' + cents.toFixed(6) + newline
     }
@@ -89,20 +86,19 @@ class AnaMarkExporter extends BaseExporter {
     if (this.version >= 200) {
       file += newline + '[Functional Tuning]' + newline
 
-      for (let i = 1; i <= intervals.length; i++) {
-        if (i === intervals.length) {
+      for (let i = 1; i <= scale.size; i++) {
+        if (i == scale.size) {
           file +=
             'note ' +
             i +
             '="#>-' +
             i +
             ' % ' +
-            intervals[i - 1].totalCents(true).toFixed(6) +
+            scale.getMonzo(i).toCents().toFixed(6) +
             ' ~999"' +
             newline
         } else {
-          file +=
-            'note ' + i + '="#=0 % ' + intervals[i - 1].totalCents(true).toFixed(6) + '"' + newline
+          file += 'note ' + i + '="#=0 % ' + scale.getMonzo(i).toCents().toFixed(6) + '"' + newline
         }
       }
 
@@ -110,7 +106,8 @@ class AnaMarkExporter extends BaseExporter {
         newline +
         '; Set reference key to absolute frequency (not scale note but midi key)' +
         newline
-      file += 'note ' + scale.baseMidiNote + '="! ' + scale.baseFrequency.toFixed(6) + '"' + newline
+      file +=
+        'note ' + this.params.baseMidiNote + '="! ' + scale.baseFrequency.toFixed(6) + '"' + newline
     }
 
     file += newline + '[Scale End]' + newline

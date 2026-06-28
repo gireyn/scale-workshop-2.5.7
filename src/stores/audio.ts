@@ -1,110 +1,26 @@
-import { computed, ref, watch, type Ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { useSessionIdStore } from './session-id'
-import {
-  APERIODIC_WAVEFORMS,
-  APERIODIC_WAVES,
-  BASIC_WAVEFORMS,
-  CUSTOM_WAVEFORMS,
-  initializeCustomWaves,
-  PERIODIC_WAVES,
-  PingPongDelay
-} from '../synth'
+import { Synth, initializeCustomWaveforms, PingPongDelay } from '../synth'
 import { VirtualSynth } from '../virtual-synth'
-import {
-  AperiodicSynth,
-  Synth,
-  UnisonSynth,
-  type OscillatorVoiceParams,
-  type UnisonVoiceParams,
-  type VoiceBaseParams,
-  type AperiodicVoiceParams,
-  AperiodicWave
-} from 'sw-synth'
 
-type SerializedAudioStore = {
-  mainVolume: number
-  waveform: string
-  attackTime: number
-  decayTime: number
-  sustainLevel: number
-  releaseTime: number
-  stackSize: number
-  spread: number
-  aperiodicWaveform: string
-  synthType: 'none' | 'oscillator' | 'unison' | 'aperiodic'
-  pingPongDelayTime: number
-  pingPongFeedback: number
-  pingPongGain: number
-  pingPongSeparation: number
-}
-
-// The compiler chokes on this store so we need an explicit type annotation
-type AudioStore = {
-  initialize: () => void
-  uninitialize: () => Promise<void>
-  toJSON: () => SerializedAudioStore
-  fromJSON: (data: Partial<SerializedAudioStore>) => void
-  context: Ref<AudioContext>
-  mainVolume: Ref<number>
-  waveform: Ref<string>
-  attackTime: Ref<number>
-  decayTime: Ref<number>
-  sustainLevel: Ref<number>
-  releaseTime: Ref<number>
-  stackSize: Ref<number>
-  spread: Ref<number>
-  aperiodicWaveform: Ref<string>
-  audioDelay: Ref<number>
-  maxPolyphony: Ref<number>
-  synth: Ref<Synth | UnisonSynth | AperiodicSynth | null>
-  synthType: Ref<'none' | 'oscillator' | 'unison' | 'aperiodic'>
-  virtualSynth: Ref<VirtualSynth>
-  pingPongDelay: Ref<PingPongDelay>
-  pingPongDelayTime: Ref<number>
-  pingPongFeedback: Ref<number>
-  pingPongGain: Ref<number>
-  pingPongSeparation: Ref<number>
-  mainGain: Ref<GainNode>
-  mainLowpass: Ref<BiquadFilterNode>
-  mainHighpass: Ref<BiquadFilterNode>
-}
-
-const DEFAULT_WAVEFORM = 'semisine'
-const DEFAULT_APERIODIC = 'jegogan'
-
-/**
- * Global audio-engine store for synth lifecycle, signal routing, and voice parameters.
- */
-export const useAudioStore = defineStore<'audio', AudioStore>('audio', () => {
-  const { invalidateUploadedId } = useSessionIdStore()
-
+export const useAudioStore = defineStore('audio', () => {
   const context = ref<AudioContext | null>(null)
   // Chromium has some issues with audio nodes as props
   // so we need this extra ref and the associated watcher.
-  const mainVolume = ref(0.18)
+  const mainVolume = ref(0.175)
   // Protect the user's audio system by limiting
   // the gain and frequency response.
   const mainGain = ref<GainNode | null>(null)
   const mainLowpass = ref<BiquadFilterNode | null>(null)
   const mainHighpass = ref<BiquadFilterNode | null>(null)
-  const synth = ref<Synth | UnisonSynth | AperiodicSynth | null>(null)
-  const synthType = ref<'none' | 'oscillator' | 'unison' | 'aperiodic'>('none')
-
-  // One of these gets swapped in the ref.
-  let oscillatorSynth: Synth
-  let unisonSynth: UnisonSynth
-  let aperiodicSynth: AperiodicSynth
+  const synth = ref<Synth | null>(null)
 
   // Synth params
-  const waveform = ref(DEFAULT_WAVEFORM)
+  const waveform = ref('semisine')
   const attackTime = ref(0.01)
   const decayTime = ref(0.3)
   const sustainLevel = ref(0.8)
   const releaseTime = ref(0.01)
-  const stackSize = ref(3)
-  const spread = ref(2.5)
-  const aperiodicWaveform = ref(DEFAULT_APERIODIC)
   // Fix Firefox issues with audioContext.currentTime being in the past using a delay.
   // This is a locally stored user preference, but shown on the Synth tab.
   const audioDelay = ref(0.001)
@@ -129,31 +45,6 @@ export const useAudioStore = defineStore<'audio', AudioStore>('audio', () => {
         audioDelay.value = 0.001
       }
     }
-  }
-
-  const _voiceBase: VoiceBaseParams = {
-    audioDelay: audioDelay.value,
-    attackTime: attackTime.value,
-    decayTime: decayTime.value,
-    sustainLevel: sustainLevel.value,
-    releaseTime: releaseTime.value
-  }
-
-  const oscillatorVoiceParams: OscillatorVoiceParams = {
-    ..._voiceBase,
-    type: 'triangle',
-    periodicWave: undefined
-  }
-
-  const unisonVoiceParams: UnisonVoiceParams = {
-    ...oscillatorVoiceParams,
-    spread: spread.value,
-    stackSize: stackSize.value
-  }
-
-  const aperiodicVoiceParams: AperiodicVoiceParams = {
-    ..._voiceBase,
-    aperiodicWave: null as unknown as AperiodicWave // Pacifies the type checker. Set properly during init.
   }
 
   const maxPolyphony = computed({
@@ -221,34 +112,24 @@ export const useAudioStore = defineStore<'audio', AudioStore>('audio', () => {
     // Intended point of audio connection
     const audioDestination = highpass
 
-    initializeCustomWaves(context.value)
+    initializeCustomWaveforms(context.value)
 
-    oscillatorVoiceParams.type = 'custom'
-    oscillatorVoiceParams.periodicWave = PERIODIC_WAVES[DEFAULT_WAVEFORM].value
-    unisonVoiceParams.type = 'custom'
-    unisonVoiceParams.periodicWave = PERIODIC_WAVES[DEFAULT_WAVEFORM].value
-    aperiodicVoiceParams.aperiodicWave = APERIODIC_WAVES[DEFAULT_APERIODIC].value
-
-    // These all should start with polyphony 0 to save resources
-    oscillatorSynth = new Synth(context.value, audioDestination)
-    unisonSynth = new UnisonSynth(context.value, audioDestination)
-    aperiodicSynth = new AperiodicSynth(context.value, audioDestination)
-
-    // The content of these references will be manipulated in-place
-    oscillatorSynth.voiceParams = oscillatorVoiceParams
-    unisonSynth.voiceParams = unisonVoiceParams
-    aperiodicSynth.voiceParams = aperiodicVoiceParams
-
-    const storedMaxPolyphony = maxPolyphony.value
-
-    synthType.value = 'oscillator'
-    synth.value = oscillatorSynth
-    synth.value.maxPolyphony = storedMaxPolyphony
+    synth.value = new Synth(
+      context.value,
+      audioDestination,
+      audioDelay.value,
+      waveform.value,
+      attackTime.value,
+      decayTime.value,
+      sustainLevel.value,
+      releaseTime.value,
+      maxPolyphony.value
+    )
 
     virtualSynth.value = new VirtualSynth(context.value)
   }
 
-  async function uninitialize() {
+  async function unintialize() {
     if (!context.value) {
       return
     }
@@ -277,92 +158,45 @@ export const useAudioStore = defineStore<'audio', AudioStore>('audio', () => {
 
   watch(audioDelay, (newValue) => {
     window.localStorage.setItem('audioDelay', newValue.toString())
-    oscillatorVoiceParams.audioDelay = newValue
-    unisonVoiceParams.audioDelay = newValue
-    aperiodicVoiceParams.audioDelay = newValue
-  })
-
-  watch(synthType, (newValue) => {
-    const storedMaxPolyphony = maxPolyphony.value
-    switch (newValue) {
-      case 'none':
-        synth.value = null
-        oscillatorSynth.maxPolyphony = 0
-        unisonSynth.maxPolyphony = 0
-        aperiodicSynth.maxPolyphony = 0
-        break
-      case 'oscillator':
-        synth.value = oscillatorSynth
-        oscillatorSynth.maxPolyphony = storedMaxPolyphony
-        unisonSynth.maxPolyphony = 0
-        aperiodicSynth.maxPolyphony = 0
-        break
-      case 'unison':
-        synth.value = unisonSynth
-        oscillatorSynth.maxPolyphony = 0
-        unisonSynth.maxPolyphony = storedMaxPolyphony
-        aperiodicSynth.maxPolyphony = 0
-        break
-      case 'aperiodic':
-        synth.value = aperiodicSynth
-        oscillatorSynth.maxPolyphony = 0
-        unisonSynth.maxPolyphony = 0
-        aperiodicSynth.maxPolyphony = storedMaxPolyphony
-        break
+    if (!synth.value) {
+      return
     }
+    synth.value.audioDelay = newValue
   })
 
   watch(waveform, (newValue) => {
-    if (BASIC_WAVEFORMS.includes(newValue)) {
-      oscillatorVoiceParams.type = unisonVoiceParams.type = newValue as OscillatorType | 'custom'
-      oscillatorVoiceParams.periodicWave = unisonVoiceParams.periodicWave = undefined
-    } else if (CUSTOM_WAVEFORMS.includes(newValue)) {
-      oscillatorVoiceParams.type = unisonVoiceParams.type = 'custom'
-      oscillatorVoiceParams.periodicWave = unisonVoiceParams.periodicWave =
-        PERIODIC_WAVES[newValue].value
+    if (!synth.value) {
+      return
     }
-  })
-
-  watch(aperiodicWaveform, (newValue) => {
-    if (APERIODIC_WAVEFORMS.includes(newValue)) {
-      aperiodicVoiceParams.aperiodicWave = APERIODIC_WAVES[newValue].value
-    }
+    synth.value.waveform = newValue
   })
 
   watch(attackTime, (newValue) => {
-    oscillatorVoiceParams.attackTime =
-      unisonVoiceParams.attackTime =
-      aperiodicVoiceParams.attackTime =
-        newValue
+    if (!synth.value) {
+      return
+    }
+    synth.value.attackTime = newValue
   })
 
   watch(decayTime, (newValue) => {
-    oscillatorVoiceParams.decayTime =
-      unisonVoiceParams.decayTime =
-      aperiodicVoiceParams.decayTime =
-        newValue
+    if (!synth.value) {
+      return
+    }
+    synth.value.decayTime = newValue
   })
 
   watch(sustainLevel, (newValue) => {
-    oscillatorVoiceParams.sustainLevel =
-      unisonVoiceParams.sustainLevel =
-      aperiodicVoiceParams.sustainLevel =
-        newValue
+    if (!synth.value) {
+      return
+    }
+    synth.value.sustainLevel = newValue
   })
 
   watch(releaseTime, (newValue) => {
-    oscillatorVoiceParams.releaseTime =
-      unisonVoiceParams.releaseTime =
-      aperiodicVoiceParams.releaseTime =
-        newValue
-  })
-
-  watch(stackSize, (newValue) => {
-    unisonVoiceParams.stackSize = newValue
-  })
-
-  watch(spread, (newValue) => {
-    unisonVoiceParams.spread = newValue
+    if (!synth.value) {
+      return
+    }
+    synth.value.releaseTime = newValue
   })
 
   // Ping pong delay parameter watchers
@@ -391,77 +225,32 @@ export const useAudioStore = defineStore<'audio', AudioStore>('audio', () => {
     pingPongGainNode.value.gain.setValueAtTime(newValue, context.value.currentTime)
   })
 
-  const LIVE_STATE = {
+  return {
+    // Methods
+    initialize,
+    unintialize,
+
+    // Public state
+    context,
     mainVolume,
     waveform,
     attackTime,
     decayTime,
     sustainLevel,
     releaseTime,
-    stackSize,
-    spread,
-    aperiodicWaveform,
-    synthType,
-    pingPongDelayTime,
-    pingPongFeedback,
-    pingPongGain,
-    pingPongSeparation
-  }
-
-  // The first trigger happens due to user input, which shouldn't be tracked.
-  let firstUpdate = true
-  watch(Object.values(LIVE_STATE), () => {
-    if (firstUpdate) {
-      firstUpdate = false
-    } else {
-      invalidateUploadedId()
-    }
-  })
-
-  /**
-   * Convert live state to a format suitable for storing on the server.
-   */
-  function toJSON(): SerializedAudioStore {
-    const result: Record<string, unknown> = {}
-    for (const [key, value] of Object.entries(LIVE_STATE)) {
-      result[key] = value.value
-    }
-    return result as SerializedAudioStore
-  }
-
-  /**
-   * Apply revived state to current state.
-   * @param data JSON data as an Object instance.
-   */
-  function fromJSON(data: Partial<SerializedAudioStore>) {
-    for (const stateKey of Object.keys(LIVE_STATE)) {
-      const value = data[stateKey as keyof SerializedAudioStore]
-      if (value !== undefined) {
-        ;(LIVE_STATE as Record<string, Ref<unknown>>)[stateKey].value = value
-      }
-    }
-  }
-
-  return {
-    // Methods
-    initialize,
-    uninitialize,
-    toJSON,
-    fromJSON,
-
-    // Live state
-    ...LIVE_STATE,
-    // Persistent state
     audioDelay,
-    // Other public state
-    context,
     maxPolyphony,
     synth,
     virtualSynth,
     pingPongDelay,
+    pingPongDelayTime,
+    pingPongFeedback,
+    pingPongGain,
+    pingPongSeparation,
+
     // "Private" state must be exposed for Pinia
     mainGain,
     mainLowpass,
     mainHighpass
-  } as AudioStore
+  }
 })

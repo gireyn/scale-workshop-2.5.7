@@ -1,37 +1,32 @@
 <script setup lang="ts">
+import { DEFAULT_NUMBER_OF_COMPONENTS } from '@/constants'
 import Modal from '@/components/ModalDialog.vue'
-import { clamp } from 'xen-dev-utils/core'
+import { clamp } from 'xen-dev-utils'
+import { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
-import { expandCode } from '@/utils'
 
 defineProps<{
   show: boolean
 }>()
 
-const emit = defineEmits(['update:source', 'update:scaleName', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
 const modal = useModalStore()
 
-function generate(expand = true) {
+function generate() {
   const denominator = Math.max(1, Math.round(modal.lowInteger))
   const greatestNumerator = clamp(
     denominator + 1,
     denominator + 1000,
     Math.round(modal.highInteger)
   )
-  let source = `${denominator}::${greatestNumerator}`
-  const equalDivisions = Math.max(1, Math.round(modal.equalDivisions))
-  const titleRange = `${denominator}-${greatestNumerator}`
-  let name = `Harmonics ${titleRange}`
-  if (equalDivisions !== 1) {
-    source += `\ninterpolate(${equalDivisions})`
-    name = `Harmonics ${equalDivisions}ED(${titleRange})`
-  }
-  if (expand) {
-    source = expandCode(source)
-  }
-  emit('update:scaleName', name)
-  emit('update:source', source)
+  const scale = Scale.fromHarmonicSeries(
+    denominator,
+    greatestNumerator,
+    DEFAULT_NUMBER_OF_COMPONENTS
+  )
+  emit('update:scaleName', `Harmonics ${denominator}-${greatestNumerator}`)
+  emit('update:scale', scale)
 }
 </script>
 
@@ -62,24 +57,6 @@ function generate(expand = true) {
             v-model="modal.highInteger"
           />
         </div>
-        <div class="control">
-          <label for="harmonic-equal-divisions">Equal divisions</label>
-          <input
-            id="harmonic-equal-divisions"
-            type="number"
-            min="1"
-            step="1"
-            class="control"
-            v-model="modal.equalDivisions"
-          />
-        </div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="() => generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="() => generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

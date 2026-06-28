@@ -1,10 +1,6 @@
-import { clamp } from 'xen-dev-utils/core'
-import { frequencyToMtsBytes } from 'xen-dev-utils/conversion'
-import { BaseExporter } from './base'
+import { clamp, frequencyToMtsBytes } from 'xen-dev-utils'
+import { BaseExporter, type ExporterParams } from './base'
 
-/**
- * Converts a frequency table into packed 3-byte MTS tuning entries.
- */
 export function frequencyTableToBinaryData(frequencyTableIn: number[]): Uint8Array {
   const dataSize = frequencyTableIn.length * 3
   const data = new Uint8Array(dataSize)
@@ -20,9 +16,6 @@ export function frequencyTableToBinaryData(frequencyTableIn: number[]): Uint8Arr
   return data
 }
 
-/**
- * Computes a 7-bit XOR checksum for SysEx payload data.
- */
 export function getSysexChecksum(data: number[]): number {
   const checksum = data
     .filter((byte: number) => byte >= 0 && byte < 128)
@@ -30,21 +23,26 @@ export function getSysexChecksum(data: number[]): number {
   return checksum & 0x7f
 }
 
-/**
- * Exporter that writes MIDI Tuning Standard bulk tuning dumps (`.syx`).
- */
 export default class MtsSysexExporter extends BaseExporter {
+  params: ExporterParams
+
+  constructor(params: ExporterParams) {
+    super()
+    this.params = params
+  }
+
   getBulkTuningData() {
     const scale = this.params.scale
+    const baseMidiNote = this.params.baseMidiNote
 
-    const frequencies = scale.getFrequencyRange(0, 128)
+    const frequencies = scale.getFrequencyRange(-baseMidiNote, 128 - baseMidiNote)
 
     const scaleData = frequencyTableToBinaryData(frequencies)
     return scaleData
   }
 
   getNameData() {
-    let name = this.params.scale.title
+    let name = this.params.name ?? ''
     while (name.length < 16) {
       name += ' '
     }

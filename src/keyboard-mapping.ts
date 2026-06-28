@@ -1,4 +1,4 @@
-import { mmod } from 'xen-dev-utils/fraction'
+import { mmod } from 'xen-dev-utils'
 import { CODES_LAYER_1 } from 'isomorphic-qwerty'
 
 export const DIGIT_ROW = CODES_LAYER_1[0].slice(1) as string[]

@@ -1,33 +1,32 @@
 <script setup lang="ts">
+import { DEFAULT_NUMBER_OF_COMPONENTS } from '@/constants'
 import Modal from '@/components/ModalDialog.vue'
-import { clamp } from 'xen-dev-utils/core'
+import { clamp } from 'xen-dev-utils'
+import { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
-import { expandCode } from '@/utils'
 
 defineProps<{
   show: boolean
 }>()
 
-const emit = defineEmits(['update:source', 'update:scaleName', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
 const modal = useModalStore()
 
-function generate(expand = true) {
-  const numerator = Math.max(1, Math.round(modal.lowInteger))
-  const greatestDenominator = clamp(numerator + 1, numerator + 1000, Math.round(modal.highInteger))
-  let source = `/${greatestDenominator}::${numerator}`
-  const equalDivisions = Math.max(1, Math.round(modal.equalDivisions))
-  const titleRange = `${numerator}-${greatestDenominator}`
-  let name = `Subharmonics ${titleRange}`
-  if (equalDivisions !== 1) {
-    source += `\ninterpolate(${equalDivisions})`
-    name = `Subharmonics ${equalDivisions}ED(${titleRange})`
-  }
-  if (expand) {
-    source = expandCode(source)
-  }
-  emit('update:scaleName', name)
-  emit('update:source', source)
+function generate() {
+  const leastDenominator = Math.max(1, Math.round(modal.lowInteger))
+  const numerator = clamp(
+    leastDenominator + 1,
+    leastDenominator + 1000,
+    Math.round(modal.highInteger)
+  )
+  const scale = Scale.fromSubharmonicSeries(
+    numerator,
+    leastDenominator,
+    DEFAULT_NUMBER_OF_COMPONENTS
+  )
+  emit('update:scaleName', `Subharmonics ${leastDenominator}-${numerator}`)
+  emit('update:scale', scale)
 }
 </script>
 
@@ -58,24 +57,6 @@ function generate(expand = true) {
             v-model="modal.highInteger"
           />
         </div>
-        <div class="control">
-          <label for="subharmonic-equal-divisions">Equal divisions</label>
-          <input
-            id="subharmonic-equal-divisions"
-            type="number"
-            min="1"
-            step="1"
-            class="control"
-            v-model="modal.equalDivisions"
-          />
-        </div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="() => generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="() => generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

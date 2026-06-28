@@ -1,41 +1,26 @@
 <script setup lang="ts">
 import Modal from '@/components/ModalDialog.vue'
-import { expandCode } from '@/utils'
+import { parseChordInput } from '@/utils'
+import { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
 
 defineProps<{
   show: boolean
 }>()
 
-const emit = defineEmits(['update:source', 'update:scaleName', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
 const modal = useModalStore()
 
-function generate(expand = true) {
+function generate() {
   try {
-    const chordParts = modal.chordIntervals.map((i) => i.toString())
-    let source = chordParts.join(':')
-    const equalDivisions = Math.max(1, Math.round(modal.equalDivisions))
-    let chordTitle = modal.chord
-    if (modal.retrovertChord) {
-      if (chordParts.length === 1) {
-        source = `retrovert(${source})`
-      } else {
-        const retrovertChord = [...chordParts].reverse().join(':')
-        source = `/${retrovertChord}`
-        chordTitle = `/${retrovertChord}`
-      }
-    }
-    let name = `Chord ${chordTitle}`
-    if (equalDivisions !== 1) {
-      source += `\ninterpolate(${equalDivisions})`
-      name = `Chord ${equalDivisions}ED(${chordTitle})`
-    }
-    emit('update:scaleName', name)
-    if (expand) {
-      emit('update:source', expandCode(source))
+    const intervals = parseChordInput(modal.chord)
+    const scale = Scale.fromChord(intervals)
+    emit('update:scaleName', `Chord ${modal.chord}`)
+    if (modal.invertChord) {
+      emit('update:scale', scale.invert())
     } else {
-      emit('update:source', source)
+      emit('update:scale', scale)
     }
   } catch (error) {
     if (error instanceof Error) {
@@ -65,27 +50,9 @@ function generate(expand = true) {
           />
         </div>
         <div class="control checkbox-container">
-          <input type="checkbox" id="integrate-period" v-model="modal.retrovertChord" />
-          <label for="integrate-period">Retrovert chord (negative harmony)</label>
+          <input type="checkbox" id="integrate-period" v-model="modal.invertChord" />
+          <label for="integrate-period">Invert chord</label>
         </div>
-        <div class="control">
-          <label for="chord-equal-divisions">Equal divisions</label>
-          <input
-            id="chord-equal-divisions"
-            type="number"
-            min="1"
-            step="1"
-            class="control"
-            v-model="modal.equalDivisions"
-          />
-        </div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="() => generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="() => generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

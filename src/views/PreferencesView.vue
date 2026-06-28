@@ -2,10 +2,8 @@
 import { UNIX_NEWLINE, WINDOWS_NEWLINE } from '@/constants'
 
 import { useStateStore } from '@/stores/state'
-import { useScaleStore } from '@/stores/scale'
 
 const state = useStateStore()
-const scale = useScaleStore()
 </script>
 
 <template>
@@ -27,38 +25,11 @@ const scale = useScaleStore()
             </select>
           </div>
         </div>
-        <h2>QWERTY layout</h2>
-        <div class="control-group">
-          <div class="control checkbox-container">
-            <input id="has-left-of-z" type="checkbox" v-model="scale.hasLeftOfZ" />
-            <label for="has-left-of-z" class="right-of-checkbox"
-              >There's a key between left Shift and 'Z'</label
-            >
-          </div>
-        </div>
         <h2>Advanced</h2>
         <div class="control-group">
           <div class="control checkbox-container">
-            <input id="mos-tab" type="checkbox" v-model="state.showMosTab" />
-            <label for="mos-tab" class="right-of-checkbox">MOS tab in top menu</label>
-          </div>
-          <div class="control checkbox-container">
             <input id="virtual-qwerty" type="checkbox" v-model="state.showVirtualQwerty" />
-            <label for="virtual-qwerty" class="right-of-checkbox">Virtual QWERTY in top menu</label>
-          </div>
-          <div class="control checkbox-container">
-            <input id="release-on-blur" type="checkbox" v-model="state.releaseOnBlur" />
-            <label for="release-on-blur" class="right-of-checkbox"
-              >Release notes when window loses focus</label
-            >
-          </div>
-          <div class="control">
-            <label for="gas">Computational budget (gas)</label>
-            <input id="gas" type="number" min="1" v-model="scale.gas" />
-          </div>
-          <div class="control checkbox-container">
-            <input id="debug" type="checkbox" v-model="state.debug" />
-            <label for="debug" class="right-of-checkbox">Enable debugging features</label>
+            <label for="virtual-qwerty"> Virtual QWERTY in top menu</label>
           </div>
         </div>
       </div>
@@ -69,12 +40,22 @@ const scale = useScaleStore()
           <div class="control radio-group">
             <span>
               <input type="radio" id="scheme-light" value="light" v-model="state.colorScheme" />
-              <label for="scheme-light">Light</label>
+              <label for="scheme-light"> Light </label>
             </span>
             <span>
               <input type="radio" id="scheme-dark" value="dark" v-model="state.colorScheme" />
-              <label for="scheme-dark">Dark</label>
+              <label for="scheme-dark"> Dark </label>
             </span>
+          </div>
+          <div class="control">
+            <label for="midiOctaveOffset">MIDI octave offset</label>
+            <input
+              id="midiOctaveOffset"
+              type="number"
+              class="control"
+              step="1"
+              v-model="state.midiOctaveOffset"
+            />
           </div>
           <h3>Accidentals</h3>
           <div class="control radio-group">
@@ -83,27 +64,27 @@ const scale = useScaleStore()
                 type="radio"
                 id="accidentals-double"
                 value="double"
-                v-model="scale.accidentalPreference"
+                v-model="state.accidentalPreference"
               />
-              <label for="accidentals-double">Double 𝄫/𝄪</label>
+              <label for="accidentals-double"> Double 𝄫/𝄪</label>
             </span>
             <span>
               <input
                 type="radio"
                 id="accidentals-single"
                 value="single"
-                v-model="scale.accidentalPreference"
+                v-model="state.accidentalPreference"
               />
-              <label for="accidentals-single">Single ♭♭/♯♯</label>
+              <label for="accidentals-single"> Single ♭♭/♯♯</label>
             </span>
             <span>
               <input
                 type="radio"
                 id="accidentals-ascii"
                 value="ASCII"
-                v-model="scale.accidentalPreference"
+                v-model="state.accidentalPreference"
               />
-              <label for="accidentals-single">ASCII bb/##</label>
+              <label for="accidentals-single"> ASCII bb/##</label>
             </span>
           </div>
         </div>
@@ -118,7 +99,7 @@ const scale = useScaleStore()
               type="number"
               class="control"
               min="0"
-              v-model="scale.centsFractionDigits"
+              v-model="state.centsFractionDigits"
             />
           </div>
           <div class="control">
@@ -128,17 +109,8 @@ const scale = useScaleStore()
               type="number"
               class="control"
               min="0"
-              v-model="scale.decimalFractionDigits"
+              v-model="state.decimalFractionDigits"
             />
-          </div>
-        </div>
-        <h2>Analytics</h2>
-        <div class="control-group">
-          <div class="control checkbox-container">
-            <input id="share-statistics" type="checkbox" v-model="state.shareStatistics" />
-            <label for="share-statistics" class="right-of-checkbox"
-              >Share statistics to help improve the application</label
-            >
           </div>
         </div>
       </div>

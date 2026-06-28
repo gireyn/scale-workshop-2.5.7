@@ -2,40 +2,9 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from '@/App.vue'
 import router from '@/router'
-import { API_URL } from './constants'
-import { randomUuidCompat } from './platform-compat'
 
-/**
- * In development, verify that `VITE_API_URL` is reachable and appears to be an
- * Scale Workshop backend instance.
- */
-if (import.meta.env.DEV) {
-  if (API_URL) {
-    fetch(API_URL)
-      .then((res) => res.text())
-      .then((body) => {
-        if (!body.includes('Scale Workshop server')) {
-          console.warn('VITE_API_URL responded with foreign data.')
-          console.log(body)
-        } else {
-          console.info('VITE_API_URL responded. Scale URLs should work.')
-        }
-      })
-      .catch((err) => {
-        console.warn('VITE_API_URL did not respond. Is sw-server running?')
-        console.error(err)
-      })
-  } else {
-    console.warn('VITE_API_URL not configured. Scale URLs will not work.')
-  }
-}
-
-/**
- * Ensure each browser instance has a persistent anonymous identifier used by the app.
- */
-if (!localStorage.getItem('uuid')) {
-  localStorage.setItem('uuid', randomUuidCompat())
-}
+// Hack to bypass Vue state management for real-time gains in table row highlighting.
+;(window as any).TUNING_TABLE_ROWS = Array(128)
 
 const app = createApp(App)
 

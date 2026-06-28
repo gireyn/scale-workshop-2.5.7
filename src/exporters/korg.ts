@@ -1,10 +1,8 @@
 import JSZip from 'jszip'
-import { mtof } from 'xen-dev-utils/conversion'
 import { BaseExporter, type ExporterParams } from '@/exporters/base'
-import { Fraction } from 'xen-dev-utils/fraction'
-import { TimeMonzo } from 'sonic-weave/monzo'
+import { Fraction, mtof } from 'xen-dev-utils'
 import { frequencyTableToBinaryData } from './mts-sysex'
-import { Interval } from 'sonic-weave/interval'
+import { ExtendedMonzo, Interval, Scale } from 'scale-workshop-core'
 
 // This exporter converts tuning data into a zip-compressed file for use with
 // Korg's Sound Librarian software, supporting their 'logue series of synthesizers.
@@ -16,6 +14,7 @@ import { Interval } from 'sonic-weave/interval'
 // precision with arbitrary mapping, this exporter intends to fully utilize the
 // capabilities of the 'logue tuning implementation. However it has not been
 // strictly tested if the additional precision is employed in the synthesis.
+
 export enum KorgModels {
   MONOLOGUE = 'monologue',
   MINILOGUE = 'minilogue',
@@ -59,21 +58,6 @@ export enum KorgExporterError {
 const OCTAVE_FORMAT_SIZE = 12
 const SCALE_FORMAT_SIZE = 128
 
-function escapeXml(value: string) {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;')
-}
-
-/**
- * Maps a user-facing model key to the Korg metadata used in archive generation.
- *
- * @param modelName Normalized model id from UI state.
- * @returns Model metadata needed for file naming and XML payloads.
- */
 export function getKorgModelInfo(modelName: string) {
   switch (modelName) {
     case 'minilogue':
@@ -89,44 +73,37 @@ export function getKorgModelInfo(modelName: string) {
   }
 }
 
-/**
- * Exporter that produces ZIP archives compatible with Korg Sound Librarian.
- */
 export class KorgExporter extends BaseExporter {
-  model: KorgModels
+  params: ExporterParams
+  modelName: string
   useOctaveFormat: boolean
 
-  constructor(params: ExporterParams, model: KorgModels, useOctaveFormat: boolean) {
-    super(params)
-    this.model = model
+  constructor(params: ExporterParams, modelName: string, useOctaveFormat: boolean) {
+    super()
+    this.params = params
+    this.modelName = modelName
     this.useOctaveFormat = useOctaveFormat
 
     if (this.useOctaveFormat) {
-      const errorMessage = KorgExporter.getOctaveFormatErrorMessage(params.relativeIntervals)
+      const errorMessage = KorgExporter.getOctaveFormatErrorMessage(params.scale)
       if (errorMessage !== '') throw new Error(errorMessage)
     }
   }
 
-  /**
-   * Validates whether the provided intervals can be exported in Korg's 12-note octave format.
-   *
-   * @param intervals Relative scale intervals.
-   * @returns Empty string when valid, otherwise a human-readable error message.
-   */
-  static getOctaveFormatErrorMessage(intervals: Interval[]): string {
-    const octave = new Interval(TimeMonzo.fromFraction(new Fraction(2, 1), 3), 'linear')
+  static getOctaveFormatErrorMessage(scale: Scale): string {
+    const octave = new Interval(ExtendedMonzo.fromFraction(new Fraction(2, 1), 3), 'ratio')
 
-    if (intervals[intervals.length - 1].compare(octave) !== 0) {
+    if (scale.equave.compare(octave) !== 0) {
       return KorgExporterError.OCTAVE_INVALID_EQUAVE
     }
 
-    if (intervals.length !== 12) {
+    if (scale.intervals.length !== 12) {
       return KorgExporterError.OCTAVE_INVALID_SIZE
     }
 
-    const unison = new Interval(TimeMonzo.fromFraction(new Fraction(1, 1), 3), 'linear')
+    const unison = new Interval(ExtendedMonzo.fromFraction(new Fraction(1, 1), 3), 'ratio')
 
-    for (const interval of intervals) {
+    for (const interval of scale.intervals) {
       if (interval.compare(unison) < 0 || interval.compare(octave) > 0) {
         return KorgExporterError.OCTAVE_INVALID_INTERVAL
       }
@@ -135,20 +112,10 @@ export class KorgExporter extends BaseExporter {
     return ''
   }
 
-  /**
-   * Builds the `Tun[SO]_*.info` XML payload for a Korg model.
-   *
-   * @param model Target Korg model key.
-   * @param programmer Exporter metadata shown by Sound Librarian.
-   * @param comment User-visible scale comment.
-   * @returns XML string payload for tuning info.
-   */
   getTuningInfoXml(model: string, programmer = 'Scale Workshop', comment = '') {
     const format = getKorgModelInfo(model)
     const name = format.name
-    const tagName = name.replace(/\s+/g, '').toLowerCase()
-    const escapedProgrammer = escapeXml(programmer)
-    const escapedComment = escapeXml(comment)
+    const tagName = name.replace(' ', '').toLowerCase()
 
     const rootName = this.useOctaveFormat
       ? `${tagName}_TuneOctInformation`
@@ -158,19 +125,13 @@ export class KorgExporter extends BaseExporter {
       `<?xml version="1.0" encoding="UTF-8"?>\n` +
       '\n' +
       `<${rootName}>\n` +
-      `  <Programmer>${escapedProgrammer}</Programmer>\n` +
-      `  <Comment>${escapedComment}</Comment>\n` +
+      `  <Programmer>${programmer}</Programmer>\n` +
+      `  <Comment>${comment}</Comment>\n` +
       `</${rootName}>\n`
 
     return xml
   }
 
-  /**
-   * Builds `FileInformation.xml` describing the contents of the Korg archive.
-   *
-   * @param model Target Korg model key.
-   * @returns XML string payload describing binary/info entries.
-   */
   getFileInfoXml(model: string) {
     const format = getKorgModelInfo(model)
 
@@ -197,32 +158,31 @@ export class KorgExporter extends BaseExporter {
     return xml
   }
 
-  /**
-   * Generates ZIP payload and extension for the selected Korg export format.
-   *
-   * @returns Tuple containing zip object and target file extension.
-   */
   getFileContents(): [JSZip, string] {
     const scale = this.params.scale
-    const baseMidiNote = scale.baseMidiNote
+    const baseMidiNote = this.params.baseMidiNote
 
     let frequencies: number[]
     if (this.useOctaveFormat) {
       const rootFreq = mtof(0)
       const transposeRatio = rootFreq / scale.baseFrequency
       frequencies = scale
-        .getFrequencyRange(baseMidiNote, baseMidiNote + OCTAVE_FORMAT_SIZE)
+        .getFrequencyRange(0, OCTAVE_FORMAT_SIZE)
         .map((f: number) => f * transposeRatio)
     } else {
-      frequencies = scale.getFrequencyRange(0, SCALE_FORMAT_SIZE)
+      frequencies = scale.getFrequencyRange(-baseMidiNote, SCALE_FORMAT_SIZE - baseMidiNote)
     }
 
     const binaryData = frequencyTableToBinaryData(frequencies)
 
-    // Prepare files for zipping.
-    const format = KORG_MODEL_INFO[this.model]
-    const tuningInfo = this.getTuningInfoXml(this.model.toString(), 'ScaleWorkshop', scale.title)
-    const fileInfo = this.getFileInfoXml(this.model.toString())
+    // prepare files for zipping
+    const format = getKorgModelInfo(this.modelName)
+    const tuningInfo = this.getTuningInfoXml(
+      this.modelName,
+      'ScaleWorkshop',
+      this.params.name ?? ''
+    )
+    const fileInfo = this.getFileInfoXml(this.modelName)
     const [fileNameHeader, fileType] = this.useOctaveFormat
       ? ['TunO_000.TunO_', format.octave]
       : ['TunS_000.TunS_', format.scale]
@@ -234,9 +194,6 @@ export class KorgExporter extends BaseExporter {
     return [zip, fileType]
   }
 
-  /**
-   * Persists the generated Korg tuning archive to disk.
-   */
   async saveFile() {
     const [zip, fileType] = this.getFileContents()
     const base64 = await zip.generateAsync({ type: 'base64' })

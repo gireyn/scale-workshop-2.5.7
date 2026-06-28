@@ -1,40 +1,27 @@
 <script setup lang="ts">
+import { DEFAULT_NUMBER_OF_COMPONENTS } from '@/constants'
 import Modal from '@/components/ModalDialog.vue'
-import { clamp } from 'xen-dev-utils/core'
+import { clamp } from 'xen-dev-utils'
+import { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
-import { expandCode } from '@/utils'
 
 defineProps<{
   show: boolean
 }>()
 
-const emit = defineEmits(['update:source', 'update:scaleName', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
 const modal = useModalStore()
 
-function generate(expand = true) {
-  const clampedGuide = Math.round(clamp(1, 1000000000, modal.guideTone))
-  const clampedRoot = Math.round(clamp(1, 1000000000, modal.rootTone))
-  let name = `Euler-Fokker genus ${clampedGuide}`
-  let source = `eulerGenus(${clampedGuide}`
-  if (clampedRoot !== 1) {
-    name += ` on ${clampedRoot}`
-    source += `, ${clampedRoot}`
-  }
+function generate() {
+  const clampedTone = Math.round(clamp(1, 1000000000, modal.guideTone))
+  const scale = Scale.fromEulerGenus(clampedTone, modal.integerEquave, DEFAULT_NUMBER_OF_COMPONENTS)
+  let name = `Euler-Fokker genus ${clampedTone}`
   if (modal.integerEquave !== 2) {
-    name += ` against ${modal.integerEquave}`
-    if (clampedRoot === 1) {
-      source += ', niente'
-    }
-    source += `, ${modal.integerEquave}`
+    name += `<${modal.integerEquave}>`
   }
-  source += ')'
   emit('update:scaleName', name)
-  if (expand) {
-    emit('update:source', expandCode(source))
-  } else {
-    emit('update:source', source)
-  }
+  emit('update:scale', scale)
 }
 </script>
 
@@ -57,27 +44,9 @@ function generate(expand = true) {
           />
         </div>
         <div class="control">
-          <label for="guide-tone">Root Tone</label>
-          <input
-            id="root-tone"
-            type="number"
-            min="1"
-            max="1000000000"
-            class="control"
-            v-model="modal.rootTone"
-          />
-        </div>
-        <div class="control">
           <label for="equave">Equave</label>
           <input id="equave" type="number" min="2" class="control" v-model="modal.integerEquave" />
         </div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="() => generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="() => generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

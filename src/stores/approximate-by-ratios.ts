@@ -1,13 +1,7 @@
-import { PRIMES } from 'xen-dev-utils/primes'
-import { clamp } from 'xen-dev-utils/core'
-import { primeLimit as getPrimeLimit } from 'xen-dev-utils/monzo'
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import { Fraction } from 'xen-dev-utils/fraction'
+import { Fraction, PRIMES, clamp, primeLimit as getPrimeLimit } from 'xen-dev-utils'
 
-/**
- * State and helpers for the "Approximate by ratios" modal workflow.
- */
 export const useApproximateByRatiosStore = defineStore('approximate-by-ratios', () => {
   const degree = ref(1)
   const approximationIndex = ref(0)
@@ -18,7 +12,6 @@ export const useApproximateByRatiosStore = defineStore('approximate-by-ratios', 
   const oddLimit = ref(9)
   const primeLimit = ref(7)
   const maxExponent = ref(2)
-  const originalSource = ref('')
 
   const safeOddLimit = computed(() => clamp(3, 101, 2 * Math.floor(oddLimit.value / 2) + 1))
   const safePrimeLimit = computed(() => {
@@ -99,10 +92,9 @@ export const useApproximateByRatiosStore = defineStore('approximate-by-ratios', 
     return '>97-limit'
   }
 
-  function initialize(source: string) {
+  function initialize() {
     degree.value = 1
     approximationIndex.value = 0
-    originalSource.value = source
   }
 
   return {
@@ -118,7 +110,6 @@ export const useApproximateByRatiosStore = defineStore('approximate-by-ratios', 
     safeOddLimit,
     safePrimeLimit,
     safeMaxExponent,
-    originalSource,
     modifyPrimeLimit,
     primeLimitString,
     initialize

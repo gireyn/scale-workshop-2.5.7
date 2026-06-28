@@ -1,31 +1,20 @@
 <script setup lang="ts">
-/**
- * SVG-based virtual piano keyboard supporting split accidental rendering modes.
- */
 import { LEFT_MOUSE_BTN } from '@/constants'
-import { computed, onMounted, onUnmounted } from 'vue'
-import { useSlidingTouches } from '@/composables/useSlidingTouches'
-import type { NoteOnCallback } from '@/types'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { mmod } from 'xen-dev-utils'
 
-type ColorMap = (index: number) => string
+type NoteOff = () => void
+type NoteOnCallback = (index: number) => NoteOff
 
 const props = defineProps<{
-  baseIndex: number
-  colorMap: ColorMap
-  splitAccidentals: boolean
-  accidentalColor: string
-  lowAccidentalColor: string
-  middleAccidentalColor: string
-  highAccidentalColor: string
+  baseMidiNote: number
+  baseIndex: number // Should incorporate equave shift
+  keyColors: string[]
   noteOn: NoteOnCallback
   heldNotes: Map<number, number>
-  slideBehavior: boolean
-  bendDragPixels: number
-  bendAxis: 'x' | 'y'
 }>()
 
 type VirtualKey = {
-  id: string
   x: number
   left: number
   right: number
@@ -34,142 +23,34 @@ type VirtualKey = {
 }
 
 type VirtualBlackKey = {
-  id: string
   x: number
   index: number
-  color: string
 }
-
-type VirtualSplitKey = {
-  id: string
-  x: number
-  y: string
-  height: string
-  index: number
-  color: string
-}
-
-const emit = defineEmits<{
-  bend: [value: number]
-}>()
 
 const NUM_KEYS = 30
 
-// Percentages of SVG height
-const TOP_Y = 20
-const SPLIT_BOTTOM_Y = 60
+const noteOffs: Map<number, NoteOff> = new Map()
 
 const whiteKeys = computed(() => {
-  const low = props.lowAccidentalColor.toLowerCase()
-  const middle = props.middleAccidentalColor.toLowerCase()
-  const high = props.highAccidentalColor.toLowerCase()
-  const black = props.accidentalColor.toLowerCase()
-
+  const colors = props.keyColors.length ? props.keyColors : ['white']
   const result: VirtualKey[] = []
-
-  if (props.splitAccidentals) {
-    const mainSeen = new Set<string>()
-    let x = 0
-    for (let i = 0; i < 3 * NUM_KEYS; ++i) {
-      const index = props.baseIndex + i
-      const color = props.colorMap(index)
-      if (color === low || color === middle || color === high) {
-        if (mainSeen.has(color)) {
-          x++
-          mainSeen.clear()
-        }
-        mainSeen.add(color)
-      } else {
-        const seen = new Set<string>()
-        let j = 0
-        let left = 0
-        while (true) {
-          const acc = props.colorMap(index - 1 - j)
-          if (acc !== low && acc !== middle && acc !== high) {
-            break
-          }
-          if (seen.has(acc)) {
-            left++
-            seen.clear()
-          }
-          seen.add(acc)
-          j++
-        }
-        if (seen.size) {
-          left++
-        }
-
-        j = 0
-        let right = 0
-        seen.clear()
-        while (true) {
-          const acc = props.colorMap(index + 1 + j)
-          if (acc !== low && acc !== middle && acc !== high) {
-            break
-          }
-          if (seen.has(acc)) {
-            right++
-            seen.clear()
-          }
-          seen.add(acc)
-          j++
-        }
-        if (seen.size) {
-          right++
-        }
-
-        if (mainSeen.size) {
-          x++
-        }
-        mainSeen.clear()
-        result.push({
-          id: `${i}`,
-          x,
-          left,
-          right,
-          index,
-          color
-        })
-        x++
-      }
-    }
-  } else {
-    for (let x = 0; x < NUM_KEYS; ++x) {
-      const index = props.baseIndex + x
-      const color = props.colorMap(index)
-      if (color !== black) {
-        let left = 0
-        while (props.colorMap(index - 1 - left) === black) {
-          left++
-        }
-        let right = 0
-        while (props.colorMap(index + 1 + right) == black) {
-          right++
-        }
-        result.push({
-          id: `${x}`,
-          x,
-          left,
-          right,
-          index,
-          color
-        })
-      }
-    }
-  }
-  return result
-})
-
-const blackKeys = computed(() => {
-  const black = props.accidentalColor.toLowerCase()
-  const result: VirtualBlackKey[] = []
   for (let x = 0; x < NUM_KEYS; ++x) {
     const index = props.baseIndex + x
-    const color = props.colorMap(index)
-    if (color === black) {
+    const colorIndex = index - props.baseMidiNote
+    const color = colors[mmod(colorIndex, colors.length)]
+    if (color.toLowerCase() !== 'black') {
+      let left = 0
+      while (colors[mmod(colorIndex - 1 - left, colors.length)].toLowerCase() === 'black') {
+        left++
+      }
+      let right = 0
+      while (colors[mmod(colorIndex + 1 + right, colors.length)].toLowerCase() === 'black') {
+        right++
+      }
       result.push({
-        id: `black${x}`,
         x,
+        left,
+        right,
         index,
         color
       })
@@ -178,158 +59,115 @@ const blackKeys = computed(() => {
   return result
 })
 
-const splitKeys = computed(() => {
-  const low = props.lowAccidentalColor.toLowerCase()
-  const middle = props.middleAccidentalColor.toLowerCase()
-  const high = props.highAccidentalColor.toLowerCase()
-  const result: VirtualSplitKey[] = []
-  let lowKey: VirtualSplitKey | undefined
-  let middleKey: VirtualSplitKey | undefined
-  let highKey: VirtualSplitKey | undefined
-  let x = 0
-
-  function pushKeys() {
-    let y = TOP_Y
-    if (lowKey || middleKey || highKey) {
-      x++
-    }
-    if (highKey) {
-      let height = SPLIT_BOTTOM_Y - y
-      if (middleKey && lowKey) {
-        height /= 3
-      } else if (middleKey || lowKey) {
-        height /= 2
-      } else {
-        height *= 0.8
-      }
-      highKey.height = `${height}%`
-      result.push(highKey)
-      highKey = undefined
-      y += height
-    }
-    if (middleKey) {
-      let height = SPLIT_BOTTOM_Y - y
-      if (lowKey) {
-        height /= 2
-      }
-      middleKey.y = `${y}%`
-      middleKey.height = `${height}%`
-      result.push(middleKey)
-      middleKey = undefined
-      y += height
-    }
-    if (lowKey) {
-      const height = SPLIT_BOTTOM_Y - y
-      lowKey.y = `${y}%`
-      lowKey.height = `${height}%`
-      result.push(lowKey)
-      lowKey = undefined
-    }
-  }
-
-  for (let i = 0; i < 3 * NUM_KEYS; ++i) {
-    const index = props.baseIndex + i
-    const color = props.colorMap(index)
-    if (color === low) {
-      if (lowKey) {
-        pushKeys()
-      }
-      lowKey = {
-        id: `low${i}`,
+const blackKeys = computed(() => {
+  const colors = props.keyColors.length ? props.keyColors : ['white']
+  const result: VirtualBlackKey[] = []
+  for (let x = 0; x < NUM_KEYS; ++x) {
+    const index = props.baseIndex + x
+    const colorIndex = index - props.baseMidiNote
+    const color = colors[mmod(colorIndex, colors.length)]
+    if (color.toLowerCase() === 'black') {
+      result.push({
         x,
-        index,
-        color,
-        y: '',
-        height: ''
-      }
-    } else if (color === middle) {
-      if (middleKey) {
-        pushKeys()
-      }
-      middleKey = { id: `mid${i}`, x, index, color, y: '', height: '' }
-    } else if (color === high) {
-      if (highKey) {
-        pushKeys()
-      }
-      highKey = { id: `high${i}`, x, index, color, y: `${TOP_Y}%`, height: '' }
-    } else {
-      x++
-      pushKeys()
+        index
+      })
     }
   }
-  pushKeys()
   return result
 })
 
-const keyMap = computed(() => {
-  const map = new Map<string, VirtualKey | VirtualBlackKey | VirtualSplitKey>()
-  for (const key of whiteKeys.value) {
-    map.set(key.id, key)
-  }
-  for (const key of blackKeys.value) {
-    map.set(key.id, key)
-  }
-  for (const key of splitKeys.value) {
-    map.set(key.id, key)
-  }
-  return map
-})
+const isMousePressed = ref(false)
 
-const {
-  onTouchStart,
-  onTouchEnd,
-  onTouchMove,
-  onMouseDown,
-  onMouseUp,
-  onMouseEnter,
-  onMouseMove,
-  releaseAll
-} = useSlidingTouches({
-  slideEnabled: () => props.slideBehavior,
-  getKeyFromElement: (element) => {
-    const keyElement = element?.closest('[data-key-id]') as HTMLElement | null
-    const keyId = keyElement?.dataset.keyId
-    if (!keyId) {
-      return undefined
-    }
-    return keyMap.value.get(keyId)
-  },
-  noteOn: props.noteOn,
-  onBend: (value) => emit('bend', value),
-  bendDragPixels: () => props.bendDragPixels,
-  bendAxis: () => props.bendAxis
-})
+function start(index: number) {
+  noteOffs.set(index, props.noteOn(index))
+}
+
+function end(index: number) {
+  if (noteOffs.has(index)) {
+    noteOffs.get(index)!()
+    noteOffs.delete(index)
+  }
+}
+
+function onTouchEnd(event: TouchEvent, index: number) {
+  event.preventDefault()
+  end(index)
+}
+
+function onTouchStart(event: TouchEvent, index: number) {
+  event.preventDefault()
+  // Make sure that we start a new note.
+  end(index)
+
+  start(index)
+}
+
+function onMouseDown(event: MouseEvent, index: number) {
+  if (event.button !== LEFT_MOUSE_BTN) {
+    return
+  }
+  event.preventDefault()
+  isMousePressed.value = true
+  start(index)
+}
+
+function onMouseUp(event: MouseEvent, index: number) {
+  if (event.button !== LEFT_MOUSE_BTN) {
+    return
+  }
+  event.preventDefault()
+  isMousePressed.value = false
+  end(index)
+}
+
+function onMouseEnter(event: MouseEvent, index: number) {
+  if (!isMousePressed.value) {
+    return
+  }
+  event.preventDefault()
+  start(index)
+}
+
+function onMouseLeave(event: MouseEvent, index: number) {
+  if (!isMousePressed.value) {
+    return
+  }
+  event.preventDefault()
+  end(index)
+}
 
 function windowMouseUp(event: MouseEvent) {
   if (event.button === LEFT_MOUSE_BTN) {
-    releaseAll()
+    isMousePressed.value = false
   }
 }
 
 onMounted(() => {
   window.addEventListener('mouseup', windowMouseUp)
-  window.addEventListener('mousemove', onMouseMove)
 })
 
 onUnmounted(() => {
-  releaseAll()
+  noteOffs.forEach((off) => {
+    if (off !== null) {
+      off()
+    }
+  })
   window.removeEventListener('mouseup', windowMouseUp)
-  window.removeEventListener('mousemove', onMouseMove)
 })
 </script>
 
 <template>
-  <svg width="100%" height="100%" @touchmove="onTouchMove" class="touch-surface">
+  <svg width="100%" height="100%">
     <rect
       v-for="(key, i) of whiteKeys"
       :key="i"
-      @touchstart="onTouchStart($event, key)"
-      @touchend="onTouchEnd($event)"
-      @touchcancel="onTouchEnd($event)"
-      @mousedown="onMouseDown($event, key)"
-      @mouseup="onMouseUp($event)"
-      @mouseenter="onMouseEnter($event, key)"
-      :data-key-id="key.id"
+      @touchstart="onTouchStart($event, key.index)"
+      @touchend="onTouchEnd($event, key.index)"
+      @touchcancel="onTouchEnd($event, key.index)"
+      @mousedown="onMouseDown($event, key.index)"
+      @mouseup="onMouseUp($event, key.index)"
+      @mouseenter="onMouseEnter($event, key.index)"
+      @mouseleave="onMouseLeave($event, key.index)"
       :class="{ white: true, active: (heldNotes.get(key.index) || 0) > 0 }"
       :x="4 * key.x - 2 * key.left + '%'"
       y="20%"
@@ -337,44 +175,22 @@ onUnmounted(() => {
       height="55%"
       :style="'fill:' + key.color + ';'"
     />
-    <template v-if="splitAccidentals">
-      <rect
-        v-for="(key, i) of splitKeys"
-        :key="i"
-        @touchstart="onTouchStart($event, key)"
-        @touchend="onTouchEnd($event)"
-        @touchcancel="onTouchEnd($event)"
-        @mousedown="onMouseDown($event, key)"
-        @mouseup="onMouseUp($event)"
-        @mouseenter="onMouseEnter($event, key)"
-        :data-key-id="key.id"
-        :class="{ black: true, active: (heldNotes.get(key.index) || 0) > 0 }"
-        :x="4 * key.x + '%'"
-        :y="key.y"
-        :height="key.height"
-        :style="'fill:' + key.color + ';'"
-        width="4%"
-      />
-    </template>
-    <template v-else>
-      <rect
-        v-for="(key, i) of blackKeys"
-        :key="i"
-        @touchstart="onTouchStart($event, key)"
-        @touchend="onTouchEnd($event)"
-        @touchcancel="onTouchEnd($event)"
-        @mousedown="onMouseDown($event, key)"
-        @mouseup="onMouseUp($event)"
-        @mouseenter="onMouseEnter($event, key)"
-        :data-key-id="key.id"
-        :class="{ black: true, active: (heldNotes.get(key.index) || 0) > 0 }"
-        :x="4 * key.x + '%'"
-        y="20%"
-        width="4%"
-        height="30%"
-        :style="'fill:' + key.color + ';'"
-      />
-    </template>
+    <rect
+      v-for="(key, i) of blackKeys"
+      :key="i"
+      @touchstart="onTouchStart($event, key.index)"
+      @touchend="onTouchEnd($event, key.index)"
+      @touchcancel="onTouchEnd($event, key.index)"
+      @mousedown="onMouseDown($event, key.index)"
+      @mouseup="onMouseUp($event, key.index)"
+      @mouseenter="onMouseEnter($event, key.index)"
+      @mouseleave="onMouseLeave($event, key.index)"
+      :class="{ black: true, active: (heldNotes.get(key.index) || 0) > 0 }"
+      :x="4 * key.x + '%'"
+      y="20%"
+      width="4%"
+      height="30%"
+    />
   </svg>
 </template>
 
@@ -396,6 +212,6 @@ svg rect.black {
   stroke-opacity: 0.5;
 }
 svg rect.black.active {
-  fill: green !important;
+  fill: green;
 }
 </style>

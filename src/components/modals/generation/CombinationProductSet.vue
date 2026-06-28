@@ -3,14 +3,15 @@ import { ref, watch } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
 import ScaleLineInput from '@/components/ScaleLineInput.vue'
 import { OCTAVE } from '@/constants'
+import { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
-import { arrayToString, expandCode, setAndReportValidity } from '@/utils'
+import { setAndReportValidity } from '@/utils'
 
 defineProps<{
   show: boolean
 }>()
 
-const emit = defineEmits(['update:scaleName', 'update:source', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
 const modal = useModalStore()
 
@@ -23,12 +24,14 @@ watch(
 // It's not obvious that combination count depends on a parsed text element.
 // I think it's better that the user can try using invalid values and see red.
 
-function generate(expand = true) {
+function generate() {
   try {
-    let source = `cps(${arrayToString(modal.factors)}, ${modal.numElements}, ${modal.equave.toString()}, ${modal.addUnity.toString()})`
-    if (expand) {
-      source = expandCode(source)
-    }
+    const scale = Scale.fromCombinations(
+      modal.factors,
+      modal.numElements,
+      modal.addUnity,
+      modal.equave
+    )
     let name = `CPS (${modal.numElements} of ${modal.factorsString}`
     if (modal.addUnity) {
       name += ' with 1/1'
@@ -38,7 +41,7 @@ function generate(expand = true) {
     }
     name += ')'
     emit('update:scaleName', name)
-    emit('update:source', source)
+    emit('update:scale', scale)
   } catch (error) {
     if (error instanceof Error) {
       alert(error.message)
@@ -91,13 +94,6 @@ function generate(expand = true) {
             :defaultValue="OCTAVE"
           />
         </div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

@@ -1,6 +1,5 @@
-import { frequencyToCentOffset } from 'xen-dev-utils/conversion'
 import { BaseExporter, type ExporterParams } from '@/exporters/base'
-import { clamp } from 'xen-dev-utils/core'
+import { clamp, frequencyToCentOffset } from 'xen-dev-utils'
 
 class ImageLineExporter extends BaseExporter {
   static numberOfNotes = 121 // IL products can only retune from C0 to C10
@@ -14,14 +13,14 @@ class ImageLineExporter extends BaseExporter {
   params: ExporterParams
 
   constructor(params: ExporterParams) {
-    super(params)
+    super()
     this.params = params
   }
 
   getFileContents(range: number) {
     const scale = this.params.scale
 
-    const baseFreqOffset = Math.log2(this.params.scale.baseFrequency / 440) // in number of octaves
+    const baseFreqOffset = Math.log2(scale.baseFrequency / 440) // in number of octaves
 
     // construct point data
     const points = new ArrayBuffer(121 * 24)
@@ -29,7 +28,8 @@ class ImageLineExporter extends BaseExporter {
     const pointsUint32 = new Uint32Array(points)
     for (let i = 0; i < ImageLineExporter.numberOfNotes; i++) {
       const edo12cents = (i - 69) * 100
-      const offset = frequencyToCentOffset(scale.getFrequency(i)) - edo12cents
+      const offset =
+        frequencyToCentOffset(scale.getFrequency(i - this.params.baseMidiNote)) - edo12cents
       const normalizedOffset = ((offset / 1200 + baseFreqOffset) / range) * 0.5 + 0.5
       const yCoord = clamp(0, 1, normalizedOffset)
       pointsDoubles[i * 3 + 1] = yCoord

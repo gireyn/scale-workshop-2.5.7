@@ -7,7 +7,6 @@ const props = defineProps<{
   baseMidiNote: number
   whiteModeOffset: number
   midiWhiteMode: 'off' | 'simple' | 'blackAverage' | 'keyColors'
-  multichannel: boolean
   keyColors: string[]
   activeKeys: Set<number>
 }>()
@@ -31,7 +30,7 @@ const whiteIndices = computed(() => computeWhiteIndices(props.baseMidiNote, prop
 
 function keyLabel(chromaticNumber: number) {
   const info = midiKeyInfo(chromaticNumber)
-  if (props.midiWhiteMode === 'off' || props.multichannel) {
+  if (props.midiWhiteMode === 'off') {
     return [(chromaticNumber - props.baseMidiNote).toString()]
   } else if (props.midiWhiteMode === 'simple') {
     if (info.whiteNumber !== undefined) {

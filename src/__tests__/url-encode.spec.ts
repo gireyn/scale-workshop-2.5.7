@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import type { LocationQuery } from 'vue-router'
-import { arraysEqual } from 'xen-dev-utils/core'
-import { DIGIT_ROW, mapWhiteAsdfBlackQwerty, mapWhiteQweZxcBlack123Asd } from '../keyboard-mapping'
+import { LocationQuery } from 'vue-router'
+import { arraysEqual } from 'xen-dev-utils'
+import { mapWhiteAsdfBlackQwerty, mapWhiteQweZxcBlack123Asd } from '../keyboard-mapping'
 
 import {
   decodeKeyColors,
@@ -14,11 +14,11 @@ import {
   encodeNumber,
   decodeNumber,
   encodeKeyMap,
-  decodeKeyMap
+  decodeKeyMap,
+  DecodedState
 } from '../url-encode'
-import type { DecodedState } from '../url-encode'
 import { DEFAULT_NUMBER_OF_COMPONENTS } from '../constants'
-import { parseScaleWorkshop2Line } from 'sonic-weave/scale-workshop-2-parser'
+import { IntervalOptions, parseLine } from 'scale-workshop-core'
 
 describe('URL encoder', () => {
   it('can encode all line types', () => {
@@ -176,23 +176,6 @@ describe('Float 36 parser', () => {
     expect(parseFloat36('10.10')).toBeCloseTo(36 + 1 / 36, 4)
   })
 
-  it('can decode negative fractions', () => {
-    expect(parseFloat36('-1.1')).toBeCloseTo(-(1 + 1 / 36), 8)
-  })
-
-  it('can decode negative random values', () => {
-    const value = -Math.random() * 1000
-    expect(parseFloat36(value.toString(36))).toBeCloseTo(value)
-  })
-
-  it('can decode fraction-only values', () => {
-    expect(parseFloat36('.1')).toBeCloseTo(1 / 36, 8)
-  })
-
-  it('can decode negative fraction-only values', () => {
-    expect(parseFloat36('-.1')).toBeCloseTo(-1 / 36, 8)
-  })
-
   it('can decode random values', () => {
     const value = Math.random() * 1000
     expect(parseFloat36(value.toString(36))).toBeCloseTo(value)
@@ -233,20 +216,6 @@ describe('Keyboard map encoder', () => {
     )
   })
 
-  it('encodes positive multi-character token with delimiter markers', () => {
-    const keyboardMapping = new Map()
-    keyboardMapping.set(DIGIT_ROW[0], 1000)
-    const encoded = encodeKeyMap(keyboardMapping)
-    expect(encoded.startsWith('--fE-')).toBeTruthy()
-  })
-
-  it('encodes negative token with trailing delimiter marker', () => {
-    const keyboardMapping = new Map()
-    keyboardMapping.set(DIGIT_ROW[0], -500)
-    const encoded = encodeKeyMap(keyboardMapping)
-    expect(encoded.startsWith('-7Q-')).toBeTruthy()
-  })
-
   it('can decode the old ASDF map', () => {
     const decoded = decodeKeyMap('............-1-1.46.9bd.gi023578acefhj...........')
     const keyboardMapping = mapWhiteAsdfBlackQwerty(decodeKeyColors('~-~~-~-~~-~-'), 0, 0)
@@ -274,16 +243,6 @@ describe('Keyboard map encoder', () => {
     expect(map.size).toBe(2)
     expect(map.get('KeyA')).toBe(1000)
     expect(map.get('Digit2')).toBe(-500)
-  })
-
-  it('can decode a truncated positive multi-character token', () => {
-    const map = decodeKeyMap('--fE')
-    expect(map.get(DIGIT_ROW[0])).toBe(1000)
-  })
-
-  it('can decode a truncated negative token', () => {
-    const map = decodeKeyMap('-7Q')
-    expect(map.get(DIGIT_ROW[0])).toBe(-500)
   })
 })
 
@@ -451,10 +410,14 @@ describe('Decoding of scales found in the wild', () => {
   it.each(COMMUNITY_SCALES)('Decodes %s', (name, checksum, encoded) => {
     const url = new URL('https://scaleworkshop.plainsound.org/' + encoded)
     const decoded = decodeQuery(url.searchParams)
+    const options: IntervalOptions = {
+      centsFractionDigits: 3,
+      decimalFractionDigits: 5
+    }
     const intervals = decoded.scaleLines.map((line) =>
-      parseScaleWorkshop2Line(line, DEFAULT_NUMBER_OF_COMPONENTS)
+      parseLine(line, DEFAULT_NUMBER_OF_COMPONENTS, options)
     )
-    const centsSum = intervals.reduce((total, interval) => total + interval.value.totalCents(), 0)
+    const centsSum = intervals.reduce((total, interval) => total + interval.totalCents(), 0)
     expect(decoded.scaleName).toBe(name)
     expect(checksum).toBeCloseTo(centsSum)
   })

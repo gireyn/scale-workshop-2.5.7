@@ -1,9 +1,7 @@
-import { NEWLINE_TEST } from '@/constants'
+import { DEFAULT_NUMBER_OF_COMPONENTS, NEWLINE_TEST } from '@/constants'
+import { getLineType, LINE_TYPE, parseLine, Interval, Scale } from 'scale-workshop-core'
 import { TextImporter, type ImportResult } from '@/importers/base'
 
-/**
- * Importer for AnaMark softsynth / VAZ Plus `.tun` files.
- */
 export class AnaMarkImporter extends TextImporter {
   parseText(input: string, filename: string): ImportResult {
     const lines = input.split(NEWLINE_TEST)
@@ -50,20 +48,25 @@ export class AnaMarkImporter extends TextImporter {
       }
     }
 
-    const sourceLines: string[] = []
+    const intervals: Interval[] = []
     functionalLines.forEach((line) => {
       if (!line.length) {
         return
       }
-      sourceLines.push(line)
+      const lineType = getLineType(line)
+      if (lineType === LINE_TYPE.INVALID) {
+        throw new Error(`Failed to parse line ${line}`)
+      }
+      intervals.push(parseLine(line, DEFAULT_NUMBER_OF_COMPONENTS))
     })
+    const scale = Scale.fromIntervalArray(intervals)
 
-    const result: ImportResult = { sourceText: sourceLines.join('\n'), name }
+    const result: ImportResult = { scale, name }
 
     // get base frequency and MIDI note
     for (let i = firstLineIndex + 1; i < lines.length; i++) {
       if (lines[i].includes('!')) {
-        result.baseFrequency = parseFloat(
+        scale.baseFrequency = parseFloat(
           lines[i].substring(lines[i].indexOf('!') + 2, lines[i].length - 2)
         )
         result.baseMidiNote = parseInt(

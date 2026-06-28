@@ -1,28 +1,29 @@
 <script setup lang="ts">
+import { computed, ref, watch } from 'vue'
+import Modal from '@/components/ModalDialog.vue'
 import {
   approximateOddLimitWithErrors,
   approximatePrimeLimitWithErrors,
-  getConvergents
-} from 'xen-dev-utils/approximation'
-import { Fraction } from 'xen-dev-utils/fraction'
-import { PRIMES } from 'xen-dev-utils/primes'
-import { valueToCents } from 'xen-dev-utils/conversion'
-import { computed, ref, watch } from 'vue'
-import Modal from '@/components/ModalDialog.vue'
+  Fraction,
+  getConvergents,
+  PRIMES,
+  valueToCents
+} from 'xen-dev-utils'
+import { DEFAULT_NUMBER_OF_COMPONENTS } from '@/constants'
+import { fractionToString, ExtendedMonzo, Interval, type Scale } from 'scale-workshop-core'
 import { useApproximateByRatiosStore } from '@/stores/approximate-by-ratios'
 import { setAndReportValidity } from '@/utils'
-import { useScaleStore } from '@/stores/scale'
 
 const MAX_LENGTH = 128
 
-defineProps<{
+const props = defineProps<{
   show: boolean
+  scale: Scale
 }>()
 
-const emit = defineEmits(['done', 'cancel'])
+const emit = defineEmits(['update:scale', 'cancel'])
 
 const approx = useApproximateByRatiosStore()
-const scale = useScaleStore()
 
 const approximationSelect = ref<HTMLSelectElement | null>(null)
 
@@ -33,11 +34,11 @@ type Approximation = {
 }
 
 const approximationsWithErrorsAndLimits = computed<Approximation[]>(() => {
-  const selected = Math.abs(scale.scale.getRatio(scale.scale.baseMidiNote + approx.degree))
-  const selectedCents = valueToCents(selected)
+  const selected = props.scale.getMonzo(approx.degree)
+  const selectedCents = selected.totalCents()
   if (approx.method === 'convergents') {
     const approximations = getConvergents(
-      selected,
+      selected.valueOf(),
       undefined,
       2 * MAX_LENGTH, // Extra length buffer
       approx.includeSemiconvergents,
@@ -108,32 +109,22 @@ watch(approximationsWithErrorsAndLimits, (newValue) => {
 function modifyAndAdvance() {
   if (!approximationsWithErrorsAndLimits.value.length) {
     alert('No approximation satisfying criteria found!')
-  } else {
-    const fraction = approximationsWithErrorsAndLimits.value[approx.approximationIndex].fraction
-    const i = approx.degree - 1
-    scale.sourceText += `\n$[${i}] = ${fraction.toFraction()} colorOf($[${i}]) labelOf($[${i}])`
   }
-  approx.degree = Math.min(scale.scale.size, approx.degree + 1)
+  const replacement = new Interval(
+    ExtendedMonzo.fromFraction(
+      approximationsWithErrorsAndLimits.value[approx.approximationIndex].fraction,
+      DEFAULT_NUMBER_OF_COMPONENTS
+    ),
+    'ratio'
+  )
+  emit('update:scale', props.scale.replaceDegree(approx.degree, replacement))
+  approx.degree = Math.min(props.scale.size, approx.degree + 1)
   approx.approximationIndex = 0
-}
-
-function modify(expand = true) {
-  if (expand) {
-    const { visitor, defaults } = scale.getUserScopeVisitor()
-    scale.sourceText = visitor.expand(defaults)
-  }
-  scale.computeScale()
-  emit('done')
-}
-
-function cancel() {
-  scale.sourceText = approx.originalSource
-  emit('done')
 }
 </script>
 
 <template>
-  <Modal :show="show" @confirm="modify(true)" @cancel="cancel">
+  <Modal :show="show" @confirm="modifyAndAdvance" @cancel="$emit('cancel')">
     <template #header>
       <h2>Approximate by ratios</h2>
     </template>
@@ -142,17 +133,11 @@ function cancel() {
         <p>Select scale degrees and apply rational replacements one by one.</p>
         <div class="control">
           <label for="degree">Scale Degree</label>
-          <input
-            type="number"
-            id="degree"
-            min="1"
-            :max="scale.scale.size"
-            v-model="approx.degree"
-          />
+          <input type="number" id="degree" min="1" :max="scale.size" v-model="approx.degree" />
         </div>
         <div class="control">
           <label for="interval">Interval</label>
-          <input type="text" id="interval" disabled :value="scale.labels[approx.degree - 1]" />
+          <input type="text" id="interval" disabled :value="scale.getName(approx.degree)" />
         </div>
         <div class="control">
           <label for="approximation">Approximation</label>
@@ -167,7 +152,8 @@ function cancel() {
               :key="i"
               :value="i"
             >
-              {{ approximation.fraction.toFraction() }} | {{ approximation.error.toFixed(5) }} |
+              {{ fractionToString(approximation.fraction) }} |
+              {{ approximation.error.toFixed(5) }} |
               {{ approximation.limit }}
             </option>
           </select>
@@ -191,17 +177,17 @@ function cancel() {
               value="convergents"
               v-model="approx.method"
             />
-            <label for="method-convergents">Convergents</label>
+            <label for="method-convergents"> Convergents </label>
           </span>
 
           <span>
             <input type="radio" id="method-odd" value="odd" v-model="approx.method" />
-            <label for="method-odd">Odd limit</label>
+            <label for="method-odd"> Odd limit </label>
           </span>
 
           <span>
             <input type="radio" id="method-prime" value="prime" v-model="approx.method" />
-            <label for="method-prime">Prime limit</label>
+            <label for="method-prime"> Prime limit </label>
           </span>
         </div>
 
@@ -242,9 +228,7 @@ function cancel() {
     <template #footer>
       <div class="btn-group">
         <button @click="modifyAndAdvance">Apply</button>
-        <button @click="modify(true)">Done</button>
-        <button @click="modify(false)">Raw</button>
-        <button @click="cancel">Cancel</button>
+        <button @click="$emit('cancel')">Close</button>
       </div>
     </template>
   </Modal>

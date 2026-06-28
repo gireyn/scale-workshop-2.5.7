@@ -1,85 +1,92 @@
-import { TimeReal } from 'sonic-weave/monzo'
-import { Interval, intervalValueAs } from 'sonic-weave/interval'
 import { BaseExporter, type ExporterParams } from '@/exporters/base'
-import { mmod } from 'xen-dev-utils/fraction'
-import { valueToCents } from 'xen-dev-utils/conversion'
+import {
+  ExtendedMonzo,
+  getLineType,
+  Interval,
+  LINE_TYPE,
+  fractionToString
+} from 'scale-workshop-core'
+import { mmod } from 'xen-dev-utils'
 
 export default class ReaperExporter extends BaseExporter {
   static tuningMaxSize = 128
   static fractionDigits = 3
 
+  params: ExporterParams
+
   constructor(params: ExporterParams) {
-    super(params)
+    super()
+    this.params = params
   }
 
   getFileContentsAndSuffix() {
-    const digits = ReaperExporter.fractionDigits
     const scale = this.params.scale
-    const labels = this.params.labels
-    const baseFrequency = scale.baseFrequency
     const format = this.params.format
     const basePeriod = this.params.basePeriod || 0
     const baseDegree = this.params.baseDegree || 0
-    const centsRoot = this.params.centsRoot ?? 0
     const modBySize = !this.params.integratePeriod
-
-    const intervals = this.params.relativeIntervals
-    if (!intervals.length) {
-      throw new Error('Cannot export empty scale.')
+    const centsRoot = new Interval(
+      ExtendedMonzo.fromCents(this.params.centsRoot || 0, scale.equave.monzo.numberOfComponents),
+      'cents'
+    )
+    let lineTypes: (LINE_TYPE | 'frequency')[]
+    if (format === 'name') {
+      lineTypes = []
+      for (let i = 0; i < scale.size; ++i) {
+        lineTypes.push(getLineType(scale.getName(i)))
+      }
     }
-    const equave = intervals[intervals.length - 1].value
+    if (format === 'cents') {
+      lineTypes = Array(scale.size).fill(LINE_TYPE.CENTS)
+    }
+    if (format === 'frequency') {
+      lineTypes = Array(scale.size).fill('frequency')
+    }
+    if (format === 'decimal') {
+      lineTypes = Array(scale.size).fill(LINE_TYPE.DECIMAL)
+    }
+    if (format === undefined) {
+      throw new Error('No export format given')
+    }
 
     let file = '# MIDI note / CC name map' + this.params.newline
 
     for (let i = ReaperExporter.tuningMaxSize - 1; i >= 0; i--) {
       file += i.toString() + ' '
 
-      let index = i - scale.baseMidiNote
+      let index = i - this.params.baseMidiNote
       const period = basePeriod + Math.floor(index / scale.size)
       if (modBySize) {
         index = mmod(index, scale.size)
       }
 
-      if (format === 'label' && index > 0 && index <= labels.length) {
-        file += labels[index - 1]
+      if (format === 'name' && ((index > 0 && index <= scale.size) || modBySize)) {
+        file += scale.getName(index)
       } else if (format === 'degree') {
         file += `${index + baseDegree}/${scale.size}`
       } else {
-        const frequency = scale.getFrequency(i)
-        const ratio = frequency / baseFrequency
-
-        switch (format) {
-          case 'cents':
-            file += (valueToCents(ratio) + centsRoot).toFixed(digits)
+        const digits = ReaperExporter.fractionDigits
+        const lineType = lineTypes![mmod(index, scale.size)]
+        switch (lineType) {
+          case LINE_TYPE.CENTS:
+            file += scale.getInterval(index).add(centsRoot).centsString()
             break
-          case 'decimal':
-            file += ratio.toFixed(digits)
+          case LINE_TYPE.DECIMAL:
+            file += scale.getMonzo(index).valueOf().toFixed(digits).replace('.', ',')
+            break
+          case LINE_TYPE.RATIO:
+            file += fractionToString(scale.getMonzo(index).toFraction())
+            break
+          case LINE_TYPE.N_OF_EDO:
+            file += scale.getInterval(index).equalTemperamentString()
             break
           case 'frequency':
-            file += frequency.toFixed(digits)
+            file += scale.getFrequency(index).toFixed(digits)
             break
-        }
-        if (format === 'label' || format === undefined) {
-          // XXX: We'd like to use the original intervals here, but that would require changes to the scale store and access to the SonicWeave root context.
-          // Leave it for now until someone requests better labels.
-          const interval = intervals[mmod(index - 1, intervals.length)]
-          const numEquaves = Math.floor((index - 1) / intervals.length)
-          const value = interval.value.mul(equave.pow(numEquaves))
-          if (value instanceof TimeReal) {
-            if (interval.domain === 'linear') {
-              file += value.valueOf().toFixed(digits).replace('.', ',')
-            } else {
-              file += value.totalCents(true).toFixed(digits)
-            }
-          } else {
-            file += new Interval(
-              value,
-              interval.domain,
-              0,
-              intervalValueAs(value, interval.node),
-              interval
-            ).toString()
-          }
+          case LINE_TYPE.INVALID:
+            throw new Error('Cannot export invalid line')
+          default:
+            throw new Error(`Unrecognized line type ${lineType}`)
         }
       }
 

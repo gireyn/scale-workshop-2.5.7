@@ -1,27 +1,23 @@
 <script setup lang="ts">
-import { Interval, intervalValueAs } from 'sonic-weave/interval'
-import { FIFTH, OCTAVE } from '@/constants'
+import { DEFAULT_NUMBER_OF_COMPONENTS, FIFTH, OCTAVE } from '@/constants'
+import { makeRank2FromVals, makeRank2FromCommas, type Rank2Params } from '@/tempering'
 import { ref, watch } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
-import NumericSlider from '@/components/NumericSlider.vue'
 import PeriodCircle from '@/components/PeriodCircle.vue'
-import { expandCode, gapKeyColors, parseCents } from '@/utils'
+import { gapKeyColors, setAndReportValidity } from '@/utils'
 import ScaleLineInput from '@/components/ScaleLineInput.vue'
+import { ExtendedMonzo, Interval, Scale } from 'scale-workshop-core'
 import { useRank2Store } from '@/stores/tempering'
-import { useScaleStore } from '@/stores/scale'
-import { mmod } from 'xen-dev-utils/fraction'
-import type { MosInfo } from 'moment-of-symmetry/info'
 
-const EPSILON = 1e-12
-
-const scale = useScaleStore()
-const rank2 = useRank2Store()
-
-defineProps<{
+const props = defineProps<{
   show: boolean
+  centsFractionDigits: number
+  scale: Scale
 }>()
 
-const emit = defineEmits(['update:scaleName', 'update:source', 'cancel'])
+const rank2 = useRank2Store()
+
+const emit = defineEmits(['update:scaleName', 'update:scale', 'update:keyColors', 'cancel'])
 
 const commasInput = ref<HTMLInputElement | null>(null)
 const valsInput = ref<HTMLInputElement | null>(null)
@@ -31,14 +27,19 @@ const subgroupInput = ref<HTMLInputElement | null>(null)
 
 // Consolidate circle method's fine tuning to hard values when changing "tabs"
 function consolidateCircle() {
-  rank2.period = parseCents(rank2.circlePeriodCents, scale.centsFractionDigits)
+  const options = { centsFractionDigits: props.centsFractionDigits }
+  rank2.period = new Interval(
+    ExtendedMonzo.fromCents(rank2.circlePeriodCents, DEFAULT_NUMBER_OF_COMPONENTS),
+    'cents'
+  ).mergeOptions(options)
   rank2.periodString = rank2.period.toString()
-
-  rank2.generator = parseCents(rank2.circleGeneratorCents, scale.centsFractionDigits)
+  rank2.generator = new Interval(
+    ExtendedMonzo.fromCents(rank2.circleGeneratorCents, DEFAULT_NUMBER_OF_COMPONENTS),
+    'cents'
+  ).mergeOptions(options)
   rank2.generatorString = rank2.generator.toString()
-
-  rank2.periodStretch = 0
-  rank2.generatorFineCents = 0
+  rank2.periodStretch = '0'
+  rank2.generatorFineCents = '0'
 }
 
 watch(
@@ -50,120 +51,133 @@ watch(
   }
 )
 
+watch(
+  () => rank2.subgroupError,
+  (newValue) => setAndReportValidity(subgroupInput.value, newValue)
+)
+
+watch(
+  () => rank2.mosPatternsError,
+  (newValue) => {
+    if (document.activeElement === subgroupInput.value) {
+      setAndReportValidity(valsInput.value, '')
+      setAndReportValidity(commasInput.value, '')
+      setAndReportValidity(subgroupInput.value, newValue)
+      return
+    } else {
+      setAndReportValidity(subgroupInput.value, '')
+    }
+    if (rank2.method === 'commas') {
+      setAndReportValidity(commasInput.value, newValue)
+      setAndReportValidity(valsInput.value, '')
+    } else if (rank2.method === 'vals') {
+      setAndReportValidity(commasInput.value, '')
+      setAndReportValidity(valsInput.value, newValue)
+    }
+  }
+)
+
 // === Methods ===
 
 function flipGenerator() {
-  const g = rank2.generator
-  const value = g.value.inverse().reduce(rank2.period.value)
-  rank2.generator = new Interval(value, g.domain, 0, intervalValueAs(value, g.node), g)
+  rank2.generator = rank2.generator.neg().mmod(
+    rank2.period.mergeOptions({
+      centsFractionDigits: props.centsFractionDigits
+    })
+  )
   rank2.generatorString = rank2.generator.toString()
 }
 
 function selectMosSize(mosSize: number) {
   rank2.size = mosSize
   if (rank2.method === 'vals' || rank2.method === 'commas') {
-    let [period, generator] = rank2.temperament.generators
-    period = Math.abs(period)
-    generator = mmod(generator, period)
-
-    rank2.numPeriods = Math.abs(rank2.temperament.numberOfPeriods)
-    rank2.method = 'generator'
-
-    rank2.period = parseCents(period, scale.centsFractionDigits)
-    rank2.periodString = rank2.period.toString()
-
-    rank2.generator = parseCents(generator, scale.centsFractionDigits)
+    let params: Rank2Params
+    if (rank2.method === 'vals') {
+      params = makeRank2FromVals(rank2.vals, mosSize, rank2.subgroup, rank2.options)
+    } else {
+      params = makeRank2FromCommas(rank2.commas, mosSize, rank2.subgroup, rank2.options)
+    }
+    const lineOptions = { centsFractionDigits: props.centsFractionDigits }
+    rank2.generator = new Interval(
+      ExtendedMonzo.fromCents(params.generator, DEFAULT_NUMBER_OF_COMPONENTS),
+      'cents',
+      undefined,
+      lineOptions
+    )
     rank2.generatorString = rank2.generator.toString()
+    rank2.period = new Interval(
+      ExtendedMonzo.fromCents(params.period, DEFAULT_NUMBER_OF_COMPONENTS),
+      'cents',
+      undefined,
+      lineOptions
+    )
+    rank2.periodString = rank2.period.toString()
+    rank2.numPeriods = params.numPeriods
+    rank2.method = 'generator'
   }
 }
 
 function updateCircleGenerator(value: number) {
-  rank2.generator = parseCents(value, scale.centsFractionDigits)
+  rank2.generator = new Interval(
+    ExtendedMonzo.fromCents(value, DEFAULT_NUMBER_OF_COMPONENTS),
+    'cents'
+  ).mergeOptions({ centsFractionDigits: props.centsFractionDigits })
   rank2.generatorString = rank2.generator.toString()
-  rank2.generatorFineCents = 0
+  rank2.generatorFineCents = '0'
+  rank2.expensiveMosPatterns = []
 }
 
-function chromaAndHardness(size: number) {
-  const g = rank2.generatorPerPeriod
-  const scalePerPeriod = [...Array(size).keys()].map((i) => mmod(i * g, 1))
-  scalePerPeriod.sort((a, b) => a - b)
-  scalePerPeriod.push(1)
-  let L = scalePerPeriod[1]
-  let s = scalePerPeriod[1]
-  for (let i = 0; i < size; ++i) {
-    const other = scalePerPeriod[i + 1] - scalePerPeriod[i]
-    // Epsilon works around floating point noise
-    if (other + EPSILON < s) {
-      s = other
-      break
-    } else if (other - EPSILON > L) {
-      L = other
-      break
+function generate() {
+  // Clear error for the next time the modal is opened
+  rank2.error = ''
+  try {
+    if (rank2.method === 'circle') {
+      consolidateCircle()
     }
-  }
-  const p = rank2.period.totalCents()
-  if (!p) {
-    return {
-      chroma: 0,
-      hardness: L / s
-    }
-  }
-  L *= p
-  s *= p
-  return {
-    chroma: L - s,
-    hardness: L / s
-  }
-}
-
-function setPreview(mosInfo: MosInfo) {
-  const { chroma, hardness } = chromaAndHardness(mosInfo.size)
-  rank2.previewMosPattern = `${mosInfo.mosPattern}, L/s: ${hardness.toFixed(2)}, L-s: ${chroma.toFixed(1)}¢`
-}
-
-function generate(expand = true) {
-  if (rank2.method === 'circle') {
-    consolidateCircle()
-  }
-  let size = rank2.safeSize
-  let up = rank2.safeUp
-  let down = rank2.down
-  const n = rank2.safeNumPeriods
-
-  let labelString = ''
-
-  // The option to fill in colors is not shown in circle UI so it's ignored here.
-  if (rank2.colorMethod === 'gaps' && rank2.method !== 'circle') {
-    const colors = Array(n)
-      .fill(
-        gapKeyColors(
-          rank2.generator.totalCents() / rank2.period.totalCents(),
-          size / n,
-          down / n,
-          rank2.colorAccidentals === 'flat'
+    const lineOptions = { centsFractionDigits: props.centsFractionDigits }
+    let size_ = rank2.safeSize
+    let down_ = rank2.down
+    const n = rank2.safeNumPeriods
+    // The option to fill in colors is not shown in circle UI so it's ignored here.
+    if (rank2.colorMethod === 'gaps' && rank2.method !== 'circle') {
+      const colors = Array(n)
+        .fill(
+          gapKeyColors(
+            rank2.generator.totalCents() / rank2.period.totalCents(),
+            size_ / n,
+            down_ / n,
+            rank2.colorAccidentals === 'flat'
+          )
         )
-      )
-      .flat() as ('black' | 'white')[]
-    size = colors.length
-    if (rank2.colorAccidentals === 'flat') {
-      down = size - n - rank2.up
-    } else {
-      up = size - n - rank2.down
+        .flat()
+      size_ = colors.length
+      if (rank2.colorAccidentals === 'flat') {
+        down_ = size_ - n - rank2.up
+      }
+      emit('update:keyColors', colors)
     }
-    labelString = `\n[${colors.join(', ')}]`
-  }
-  const source = `rank2(${rank2.generator.toString()}, ${up}, ${down}, ${rank2.period.toString()}, ${n})${labelString}`
-  emit('update:scaleName', `Rank 2 temperament (${rank2.generatorString}, ${rank2.periodString})`)
-  if (expand) {
-    emit('update:source', expandCode(source))
-  } else {
-    emit('update:source', source)
+    const scale = Scale.fromRank2(
+      rank2.generator.mergeOptions(lineOptions),
+      rank2.period.mergeOptions(lineOptions),
+      size_,
+      down_,
+      n
+    )
+    emit('update:scaleName', `Rank 2 temperament (${rank2.generatorString}, ${rank2.periodString})`)
+    emit('update:scale', scale)
+  } catch (error_) {
+    console.error(error_)
+    if (error_ instanceof Error) {
+      rank2.error = error_.message
+    } else {
+      rank2.error = '' + error_
+    }
   }
 }
 </script>
 
 <template>
-  <Modal :show="show" @confirm="generate" @cancel="$emit('cancel')">
+  <Modal :show="show" extraStyle="width: 30rem" @confirm="generate" @cancel="$emit('cancel')">
     <template #header>
       <h2>Generate rank 2 temperament</h2>
     </template>
@@ -174,22 +188,22 @@ function generate(expand = true) {
             <label>Method</label>
             <span>
               <input type="radio" id="method-generator" value="generator" v-model="rank2.method" />
-              <label for="method-generator">Generator</label>
+              <label for="method-generator"> Generator </label>
             </span>
 
             <span>
               <input type="radio" id="method-vals" value="vals" v-model="rank2.method" />
-              <label for="method-vals">Vals</label>
+              <label for="method-vals"> Vals </label>
             </span>
 
             <span>
               <input type="radio" id="method-commas" value="commas" v-model="rank2.method" />
-              <label for="method-commas">Comma list</label>
+              <label for="method-commas"> Comma list </label>
             </span>
 
             <span>
               <input type="radio" id="method-circle" value="circle" v-model="rank2.method" />
-              <label for="method-circle">Circle</label>
+              <label for="method-circle"> Circle</label>
             </span>
           </div>
         </div>
@@ -302,8 +316,7 @@ function generate(expand = true) {
         <div class="control-group" v-show="rank2.method === 'circle'">
           <div class="square">
             <PeriodCircle
-              :scale="scale.scale"
-              :labels="scale.labels"
+              :scale="scale"
               :generatorCents="rank2.circleGeneratorCents"
               :periodCents="rank2.circlePeriodCents"
               :size="rank2.generatorsPerPeriod"
@@ -314,8 +327,9 @@ function generate(expand = true) {
           </div>
           <div class="control">
             <label for="period-stretch">Period stretch</label>
-            <NumericSlider
+            <input
               class="wide-range"
+              type="range"
               id="period-stretch"
               step="any"
               min="-0.05"
@@ -323,8 +337,9 @@ function generate(expand = true) {
               v-model="rank2.periodStretch"
             />
             <label for="generator-fine-tune">Generator fine-tune</label>
-            <NumericSlider
+            <input
               class="wide-range"
+              type="range"
               id="generator-fine-tune"
               step="any"
               min="-5"
@@ -334,7 +349,27 @@ function generate(expand = true) {
           </div>
         </div>
 
-        <div class="control-group" v-show="rank2.method === 'circle'">
+        <template v-if="rank2.method !== 'circle'">
+          <div :class="{ error: rank2.mosPatternsError.length }">
+            <strong>MOS sizes</strong>
+            <span v-show="rank2.mosPatternsError.length">⚠</span>
+          </div>
+          <div class="btn-group" v-if="rank2.mosPatterns.length">
+            <button
+              v-for="(mosInfo, i) of rank2.mosPatterns"
+              :key="i"
+              @mouseenter="rank2.previewMosPattern = mosInfo.mosPattern"
+              @mouseleave="rank2.previewMosPattern = ''"
+              @click="selectMosSize(mosInfo.size)"
+            >
+              {{ mosInfo.size }}
+            </button>
+          </div>
+          <div class="btn-group" v-else>
+            <button @click="rank2.calculateExpensiveMosPattern">Calculate MOS sizes...</button>
+          </div>
+        </template>
+        <div class="control-group" v-else>
           <div class="control">
             <label for="generators-per-period">Generators per period</label>
             <input
@@ -348,53 +383,32 @@ function generate(expand = true) {
           </div>
         </div>
 
-        <div class="control-group" v-show="rank2.method !== 'circle'">
+        <div class="control-group" v-if="rank2.method !== 'circle'">
           <div class="control radio-group">
             <label>Generate key colors</label>
             <span>
               <input type="radio" id="color-none" value="none" v-model="rank2.colorMethod" />
-              <label for="color-none">Off</label>
+              <label for="color-none"> Off </label>
             </span>
             <span>
               <input type="radio" id="color-gaps" value="gaps" v-model="rank2.colorMethod" />
-              <label for="color-gaps">Fill gaps (expand scale)</label>
+              <label for="color-gaps"> Fill gaps (expand scale) </label>
             </span>
           </div>
           <div class="control radio-group" v-show="rank2.colorMethod !== 'none'">
             <label>Black keys are</label>
             <span>
               <input type="radio" id="sharp" value="sharp" v-model="rank2.colorAccidentals" />
-              <label for="sharp">Sharp</label>
+              <label for="sharp"> Sharp </label>
             </span>
             <span>
               <input type="radio" id="flat" value="flat" v-model="rank2.colorAccidentals" />
-              <label for="flat">Flat</label>
+              <label for="flat"> Flat </label>
             </span>
           </div>
         </div>
       </div>
-      <div class="control-group" v-show="rank2.method === 'vals' || rank2.method === 'commas'">
-        <div class="control radio-group">
-          <span>
-            <input type="radio" id="tempering-TE" value="TE" v-model="rank2.optimizationScheme" />
-            <label for="tempering-TE">TE</label>
-          </span>
-
-          <span>
-            <input
-              type="radio"
-              id="tempering-POTE"
-              value="POTE"
-              v-model="rank2.optimizationScheme"
-            />
-            <label for="tempering-POTE">POTE</label>
-          </span>
-
-          <span>
-            <input type="radio" id="tempering-CTE" value="CTE" v-model="rank2.optimizationScheme" />
-            <label for="tempering-CTE">CTE</label>
-          </span>
-        </div>
+      <div v-show="rank2.method === 'vals' || rank2.method === 'commas'">
         <p
           class="section"
           :class="{ open: rank2.showAdvanced }"
@@ -402,52 +416,44 @@ function generate(expand = true) {
         >
           Advanced options
         </p>
-        <div class="control" v-show="rank2.showAdvanced">
-          <label for="weights">Weights for {{ rank2.subgroupLabel }}</label>
-          <textarea id="weights" v-model="rank2.weightsString"></textarea>
-        </div>
-        <p class="warning">{{ rank2.error }}</p>
-      </div>
-      <div class="control-group" v-show="rank2.method !== 'circle'">
-        <div :class="{ error: rank2.mosPatternsError.length }">
-          <strong>MOS sizes</strong>
-          <span v-show="rank2.mosPatternsError.length">⚠</span>
-        </div>
-        <div class="btn-group" v-if="rank2.mosPatterns.length">
-          <button
-            v-for="(mosInfo, i) of rank2.mosPatterns"
-            :key="i"
-            @mouseenter="setPreview(mosInfo)"
-            @mouseleave="rank2.previewMosPattern = ''"
-            @click="selectMosSize(mosInfo.size)"
-          >
-            {{ mosInfo.size }}
-          </button>
-          <button @click="rank2.mosPatternAmount += 1">More ({{ rank2.morePatterns }}+)</button>
+        <div class="control-group" v-show="rank2.showAdvanced">
+          <div class="control radio-group">
+            <span>
+              <input type="radio" id="tempering-TE" value="TE" v-model="rank2.tempering" />
+              <label for="tempering-TE"> TE </label>
+            </span>
+
+            <span>
+              <input type="radio" id="tempering-POTE" value="POTE" v-model="rank2.tempering" />
+              <label for="tempering-POTE"> POTE </label>
+            </span>
+
+            <span>
+              <input type="radio" id="tempering-CTE" value="CTE" v-model="rank2.tempering" />
+              <label for="tempering-CTE"> CTE </label>
+            </span>
+          </div>
+
+          <div class="control" v-show="rank2.tempering === 'CTE'">
+            <label for="constraints">Constraints</label>
+            <textarea id="constraints" v-model="rank2.constraintsString"></textarea>
+          </div>
+
+          <div class="control">
+            <label for="weights">Weights</label>
+            <textarea id="weights" v-model="rank2.weightsString"></textarea>
+          </div>
         </div>
       </div>
     </template>
     <template #footer>
       <div class="btn-group">
-        <button
-          @click="generate(true)"
-          :disabled="rank2.method === 'vals' || rank2.method === 'commas'"
-        >
+        <button @click="generate" :disabled="rank2.method === 'vals' || rank2.method === 'commas'">
           OK
         </button>
         <button @click="$emit('cancel')">Cancel</button>
-        <button
-          @click="generate(false)"
-          :disabled="rank2.method === 'vals' || rank2.method === 'commas'"
-        >
-          Raw
-        </button>
-        <span class="error" v-show="rank2.mosPatternsError.length">⚠</span>
+        <span class="error" v-show="rank2.error.length">⚠</span>
         <i>{{ rank2.previewMosPattern }}</i>
-        <span class="hint" v-if="rank2.method === 'circle'">
-          <span class="hint-mouse">Tip: drag circle to set generator.</span>
-          <span class="hint-touch">Tip: touch-drag circle to set generator.</span>
-        </span>
       </div>
     </template>
   </Modal>
@@ -474,39 +480,5 @@ function generate(expand = true) {
 
 .wide-range {
   width: 100%;
-}
-
-p.warning {
-  height: 3em;
-  width: 29em;
-  overflow-y: hidden;
-}
-
-.hint {
-  font-size: 0.9em;
-  margin-left: 0.5em;
-  color: var(--color-text-mute);
-}
-
-.hint-touch {
-  display: none;
-}
-
-@media (hover: none), (pointer: coarse) {
-  .hint-mouse {
-    display: none;
-  }
-
-  .hint-touch {
-    display: inline;
-  }
-}
-
-/* Content layout (medium) */
-@media screen and (min-width: 600px) {
-  .modal-mask :deep(.modal-container) {
-    min-width: 30rem;
-    max-width: 31rem;
-  }
 }
 </style>

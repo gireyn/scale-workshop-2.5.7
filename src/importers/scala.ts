@@ -1,15 +1,13 @@
-import { NEWLINE_TEST } from '@/constants'
+import { DEFAULT_NUMBER_OF_COMPONENTS, NEWLINE_TEST } from '@/constants'
 import { TextImporter, type ImportResult } from '@/importers/base'
+import { getLineType, LINE_TYPE, parseLine, Scale, type Interval } from 'scale-workshop-core'
 
-/**
- * Importer for Scala `.scl` files.
- */
 export class ScalaImporter extends TextImporter {
   parseText(input: string): ImportResult {
     const lines = input.split(NEWLINE_TEST)
-    let validLineCount = 0
+    const intervals: Interval[] = []
     let name = ''
-    const sourceLines: string[] = []
+    let validLineCount = 0
     for (let line of lines) {
       line = line.trim()
       // Ignore comments
@@ -29,20 +27,15 @@ export class ScalaImporter extends TextImporter {
 
       // Process true lines
       if (validLineCount > 2) {
-        const parts = line.split(/\s/)
-        if (parts.length === 1) {
-          // Valid .scl is valid SonicWeave
-          sourceLines.push(parts[0])
-        } else if (parts.length > 1) {
-          // Unofficially labeled .scl is valid SonicWeave if quoted
-          let label = parts.slice(1).join(' ').trim()
-          if (label.startsWith('!')) {
-            label = label.slice(1).trim()
-          }
-          sourceLines.push(parts[0] + ' ' + JSON.stringify(label))
+        line = line.split(/\s/)[0]
+        const lineType = getLineType(line)
+        if (lineType === LINE_TYPE.INVALID) {
+          throw new Error(`Failed to parse line ${line}`)
         }
+        intervals.push(parseLine(line, DEFAULT_NUMBER_OF_COMPONENTS, undefined, true, false))
       }
     }
-    return { name, sourceText: sourceLines.join('\n') }
+    const scale = Scale.fromIntervalArray(intervals)
+    return { name, scale }
   }
 }

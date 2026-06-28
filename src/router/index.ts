@@ -7,10 +7,7 @@ import {
 } from 'vue-router'
 import ScaleView from '../views/ScaleView.vue'
 
-/**
- * Query-string parser wrapper that coerces `qs.parse` output into `LocationQuery`
- * after verifying no key has an `undefined` value.
- */
+// Boilerplate to resolve minor type incompatibility
 function qsParse(query: string) {
   const result = qs.parse(query)
   Object.keys(result).forEach((key) => {
@@ -35,23 +32,10 @@ const router = createRouter({
     {
       path: '/about',
       name: 'about',
-      // Route-level code splitting for static content views.
+      // route level code-splitting
+      // this generates a separate chunk (About.[hash].js) for this route
+      // which is lazy-loaded when the route is visited.
       component: () => import('../views/AboutView.vue')
-    },
-    {
-      path: '/scale/:id',
-      name: 'load-scale',
-      component: () => import('../views/LoadScaleView.vue')
-    },
-    {
-      path: '/privacy-policy',
-      name: 'privacy-policy',
-      component: () => import('../views/PrivacyPolicy.vue')
-    },
-    {
-      path: '/terms-of-service',
-      name: 'terms-of-service',
-      component: () => import('../views/TermsOfService.vue')
     },
     {
       path: '/analysis',
@@ -70,7 +54,7 @@ const router = createRouter({
     },
     {
       path: '/prefs',
-      name: 'preferences',
+      name: 'preferencess',
       component: () => import('../views/PreferencesView.vue')
     },
     {
@@ -88,12 +72,7 @@ const router = createRouter({
       name: 'qwerty',
       component: () => import('../views/VirtualQwerty.vue')
     },
-    {
-      path: '/mos',
-      name: 'mos',
-      component: () => import('../views/MosView.vue')
-    },
-    // Root aliases for compatibility with legacy SW1 URLs.
+    // Root aliases mainly for compatibility with old SW1 URLs.
     {
       path: '/index.html',
       redirect: '/'
@@ -102,7 +81,7 @@ const router = createRouter({
       path: '/index.htm',
       redirect: '/'
     },
-    // Catch-all not-found route.
+    // 404 route will match everything and put it under `$route.params.pathMatch`
     {
       path: '/:pathMatch(.*)*',
       name: 'notFound',
@@ -111,34 +90,20 @@ const router = createRouter({
   ]
 })
 
-/**
- * Returns whether a route has any query parameters.
- */
+// Preserve query parameters on router navigation
+// https://stackoverflow.com/a/47195471
+
 function hasQueryParams(route: RouteLocationNormalized) {
   return !!Object.keys(route.query).length
 }
 
-/**
- * Returns wheter a route has any hash parameters.
- */
-function hasHash(route: RouteLocationNormalized) {
-  return !!route.hash.length
-}
-
-router.beforeEach((to, from) => {
-  if (to.name == null || to.name === 'load-scale' || from.name === 'load-scale') {
-    return
-  }
-
-  const shouldCarryQuery = !hasQueryParams(to) && hasQueryParams(from)
-  const shouldCarryHash = !hasHash(to) && hasHash(from)
-
-  if (shouldCarryQuery || shouldCarryHash) {
-    return {
-      path: to.path,
-      query: shouldCarryQuery ? from.query : to.query,
-      hash: shouldCarryHash ? from.hash : to.hash
-    }
+router.beforeEach((to, from, next) => {
+  if (to.name == null) {
+    next()
+  } else if (!hasQueryParams(to) && hasQueryParams(from)) {
+    next({ name: to.name, query: from.query })
+  } else {
+    next()
   }
 })
 

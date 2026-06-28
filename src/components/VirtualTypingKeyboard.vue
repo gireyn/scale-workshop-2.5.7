@@ -1,36 +1,28 @@
 <script setup lang="ts">
-/**
- * Interactive QWERTY-based virtual keyboard component for typing and pointer input.
- */
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import {
-  CODES_LAYER_1,
-  COORDS_BY_CODE,
-  type CoordinateKeyboardEvent,
-  type Keyboard
-} from 'isomorphic-qwerty'
+import { mmod } from 'xen-dev-utils'
+import type { Keyboard, CoordinateKeyboardEvent } from 'isomorphic-qwerty'
+import { CODES_LAYER_1, COORDS_BY_CODE } from 'isomorphic-qwerty'
 import { LEFT_MOUSE_BTN } from '@/constants'
-import { axisOffset } from '@/utils'
-import type { NoteOff, NoteOnCallback } from '@/types'
 
-/**
- * Unimplemented features:
- * - Key highlights on touch/click.
- * - Global key off when clicking the button with that rectangle inside it.
- * - Sustain when multi-touching with the shift buttons.
+/** Unimplemented features:
+ * Key highlights on touch/click
+ * Global key off when clicking the button with that rectangle inside it
+ * Sustain when multi-touching with the shift buttons
  */
 
-type ColorMap = (index: number) => string
+type NoteOff = () => void
+type NoteOnCallback = (index: number) => NoteOff
 
 const props = defineProps<{
-  baseIndex: number // Should incorporate shifts
-  colorMap: ColorMap
+  baseIndex: number // Should incorporate equave shift
+  baseMidiNote: number
+  keyColors: string[]
   keyboardMode: 'isomorphic' | 'piano'
   colorScheme: 'light' | 'dark'
-  qwertyMapping: Map<string, number>
-  hasLeftOfZ: boolean
-  isomorphicHorizontal: number[]
-  isomorphicVertical: number[]
+  keyboardMapping: Map<string, number>
+  isomorphicHorizontal: number
+  isomorphicVertical: number
   noteOn: NoteOnCallback
   heldNotes: Map<number, number>
   typingKeyboard: Keyboard
@@ -66,10 +58,12 @@ const activeKeys = reactive(new Set())
 const disabledFill = computed(() => (props.colorScheme === 'light' ? 'whitesmoke' : 'gray'))
 
 const rows = computed(() => {
+  const colors = props.keyColors.length ? props.keyColors : ['white']
   const horizontal = props.isomorphicHorizontal
   const vertical = props.isomorphicVertical
   const base = props.baseIndex
-  const mapping = props.qwertyMapping
+  const midi = props.baseMidiNote
+  const mapping = props.keyboardMapping
 
   const result: VirtualKey[][] = []
 
@@ -82,30 +76,23 @@ const rows = computed(() => {
       if (code === null || code === 'Backquote') {
         continue
       }
-      let index: number | undefined = base
+      let index
       if (props.keyboardMode === 'isomorphic') {
         const [x, y] = COORDS_BY_CODE.get(code)!
-        index += axisOffset(x, horizontal) + axisOffset(2 - y, vertical)
+        index = base + x * horizontal + (2 - y) * vertical
       } else {
-        index = mapping.get(code)
+        index = mapping!.get(code)
       }
-      let color = index === undefined ? disabledFill.value : props.colorMap(index)
+      const color =
+        index === undefined ? disabledFill.value : colors[mmod(index - midi, colors.length)]
       const black = color.toLowerCase() === 'black'
-      let stroke = 'dimgray'
-      if (index === undefined) {
-        stroke = disabledFill.value
-      }
-      if (code === 'IntlBackslash' && !props.hasLeftOfZ) {
-        stroke = 'red'
-        color = disabledFill.value
-      }
       row.push({
         key: code,
         x: offsets[j] + 100 * i,
         y: 100 + 100 * j,
         index,
-        color,
-        stroke,
+        color: color,
+        stroke: index === undefined ? disabledFill.value : 'dimgray',
         class: {
           black,
           white: !black && index !== undefined,
@@ -274,13 +261,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <svg
-    width="200"
-    height="100"
-    viewBox="0 0 1700 800"
-    style="width: 100%; height: auto"
-    class="touch-surface"
-  >
+  <svg width="200" height="100" viewBox="0 0 1700 800" style="width: 100%; height: auto">
     <g class="click-not-implemented">
       <rect
         x="100"

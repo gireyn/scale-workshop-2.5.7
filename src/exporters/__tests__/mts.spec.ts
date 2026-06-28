@@ -13,7 +13,7 @@ describe('MTS exporter', () => {
 
     const scaleData = exporter.getBulkTuningData()
     expect(createHash('sha256').update(scaleData).digest('base64')).toBe(
-      'NLwkn1HRQKdNAyYdxl6RQwfz0JvFyShWaB0DHHtPVZo='
+      'z7mQ6pS8tVYimN2B5V3WIgN7NR4lFMwrlIjxKJkWEss='
     )
 
     // Name is padded with spaces
@@ -22,20 +22,20 @@ describe('MTS exporter', () => {
 
     const sysExMsg = exporter.buildSysExDump()
     expect(createHash('sha256').update(sysExMsg).digest('base64')).toBe(
-      'Ghut5DZnxeRXQE0TbOJl6Sh66xI2x1QouHhVhIdQXrQ='
+      'WYM++7Jej+d9FhBWw0hqKyj/YMhgtSbCfFA6QryKhdI='
     )
   })
 
   it('can gracefully handle invalid parameters', async () => {
     const params = getTestData('MTS Sysex Bulk Tuning Dump exporter unit test v0.0.0')
-    params.scale.title = 'Super Special Test Scale'
+    params.name = 'Super Special Test Scale'
     params.presetIndex = -1
 
     const exporter = new MtsSysexExporter(params)
 
     const scaleData = exporter.getBulkTuningData()
     expect(createHash('sha256').update(scaleData).digest('base64')).toBe(
-      'NLwkn1HRQKdNAyYdxl6RQwfz0JvFyShWaB0DHHtPVZo='
+      'z7mQ6pS8tVYimN2B5V3WIgN7NR4lFMwrlIjxKJkWEss='
     )
 
     // Name is truncated
@@ -46,7 +46,9 @@ describe('MTS exporter', () => {
 
     const sysExMsg = exporter.buildSysExDump()
     expect(createHash('sha256').update(sysExMsg).digest('base64')).toBe(
-      'T1Zs8dZGlznhsgEqRxZJFvLT3yc3UAbtWSanZZ1pvHU='
+      'vrtx5APwYW8zLF0CVgkcBE3z/kGSXYKfDHDrd0oh8xI='
     )
   })
+
+  return
 })

@@ -1,8 +1,9 @@
+otonalFundamental
 <script setup lang="ts">
 import { otonalFundamental, utonalFundamental } from '@/analysis'
 import type { VirtualSynth } from '@/virtual-synth'
 import { onMounted, onUnmounted, ref } from 'vue'
-import { clamp } from 'xen-dev-utils/core'
+import { clamp } from 'xen-dev-utils'
 
 const NUM_SAMPLES = 512
 
@@ -22,6 +23,7 @@ const props = defineProps<{
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 let audioTimeOffset = NaN
+// eslint-disable-next-line no-undef
 let previousTime: DOMHighResTimeStamp = 0
 let theta = 0
 let frameIndex = 0
@@ -35,6 +37,7 @@ const thetas = Array(buffers.length).fill(0)
 
 let animationFrame: number | undefined
 
+// eslint-disable-next-line no-undef
 function draw(time: DOMHighResTimeStamp) {
   let start = previousTime / 1000
   let end = time / 1000
@@ -80,7 +83,7 @@ function draw(time: DOMHighResTimeStamp) {
   }
 
   // Render a chord wheel that appears to move based on how
-  // discordant the voices are compared to a pure enumerated chord.
+  // disconcordant the voices are compared to a pure enumerated chord.
   const offsetWidth = canvas.value!.offsetWidth
   ctx.lineWidth = (props.lineWidth * props.width) / offsetWidth
   ctx.strokeStyle = props.strokeStyle
@@ -95,7 +98,7 @@ function draw(time: DOMHighResTimeStamp) {
 
   synth.getTimeDomainData(start, end, buffers)
 
-  const frequencies = synth.getVoiceFrequencies()
+  const frequencies = synth.voices.map((voice) => voice.frequency)
   let chord: string[]
   const numActive = Math.min(synth.voices.length, buffers.length)
 
@@ -154,7 +157,7 @@ function draw(time: DOMHighResTimeStamp) {
   if (props.type === 'otonal') {
     text = chord.join(':')
   } else {
-    text = '/' + chord.join(':')
+    text = '1/(' + chord.join(':') + ')'
   }
   const textWidth = ctx.measureText(text).width
   if (textWidth * 10 < width * 8) {

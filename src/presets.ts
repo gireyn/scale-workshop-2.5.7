@@ -1,8 +1,9 @@
+import { autoKeyColors } from '@/utils'
 import PRESETS from '@/presets.json'
 
 type PresetFragment = {
   name: string
-  source: string
+  lines: string[]
   categories: string[]
   title?: string
   baseFrequency?: number
@@ -13,10 +14,11 @@ export type Preset = {
   name: string
   title: string
   id: string
-  source: string
+  lines: string[]
   categories: string[]
   baseFrequency: number
   baseMidiNote: number
+  keyColors: string[]
 }
 
 export type PresetGroup = {
@@ -24,18 +26,14 @@ export type PresetGroup = {
   members: Preset[]
 }
 
-/**
- * Normalizes a raw preset fragment from JSON into a fully-populated preset object.
- */
 function normalized(id: string): Preset {
-  const result = Object.assign(
-    {},
-    (PRESETS as unknown as { [key: string]: PresetFragment })[id]
-  ) as Preset
+  const result: any = Object.assign({}, (PRESETS as { [key: string]: PresetFragment })[id])
   result.id = id
   result.title = result.title || result.name
   result.baseFrequency = result.baseFrequency || 440
   result.baseMidiNote = result.baseMidiNote === undefined ? 69 : result.baseMidiNote
+  result.keyColors =
+    result.keyColors === undefined ? autoKeyColors(result.lines.length) : result.keyColors
   return result
 }
 
@@ -45,9 +43,6 @@ Object.keys(PRESETS).forEach((id) => {
   presets[id] = normalized(id)
 })
 
-/**
- * Groups presets by category for display in the preset picker UI.
- */
 export function presetsByGroup(): PresetGroup[] {
   const traditional: PresetGroup = {
     name: 'Traditional scales',

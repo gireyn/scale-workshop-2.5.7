@@ -3,14 +3,14 @@ import { ref, watch } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
 import ScaleLineInput from '@/components/ScaleLineInput.vue'
 import { OCTAVE } from '@/constants'
-import { computedAndError, expandCode, setAndReportValidity } from '@/utils'
-import { parseChord } from 'sonic-weave/parser'
+import { computedAndError, parseChordInput, setAndReportValidity } from '@/utils'
+import { Scale } from 'scale-workshop-core'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
 }>()
 
-const emit = defineEmits(['update:source', 'update:scaleName', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
 const basisString = ref('3 5 7 11')
 const addUnity = ref(false)
@@ -18,7 +18,10 @@ const equaveString = ref('2/1')
 const equave = ref(OCTAVE)
 const basisElement = ref<HTMLInputElement | null>(null)
 const [basis, basisError] = computedAndError(() => {
-  const chord = parseChord(basisString.value)
+  if (!props.show) {
+    return []
+  }
+  const chord = parseChordInput(basisString.value)
   if (chord.length !== 4) {
     throw new Error('Need exactly four basis vectors')
   }
@@ -26,12 +29,9 @@ const [basis, basisError] = computedAndError(() => {
 }, [])
 watch(basisError, (newError) => setAndReportValidity(basisElement.value, newError))
 
-function generate(expand = true) {
+function generate() {
   try {
-    let source = `octaplex(${basis.value.map((b) => b.toString()).join(', ')}, ${equave.value.toString()}, ${addUnity.value.toString()})`
-    if (expand) {
-      source = expandCode(source)
-    }
+    const scale = Scale.fromOctaplex(basis.value, addUnity.value, equave.value)
     let name = `The Octaplex (${basisString.value}`
     if (addUnity.value) {
       name += ' with 1/1'
@@ -41,7 +41,7 @@ function generate(expand = true) {
     }
     name += ')'
     emit('update:scaleName', name)
-    emit('update:source', source)
+    emit('update:scale', scale)
   } catch (error) {
     if (error instanceof Error) {
       alert(error.message)
@@ -81,13 +81,6 @@ function generate(expand = true) {
             :defaultValue="OCTAVE"
           />
         </div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest'
 
 import {
   autoKeyColors,
-  encodeUrlSafe64,
   formatExponential,
   formatHertz,
   gapKeyColors,
-  randomId
+  parseChordInput
 } from '../utils'
+import { DEFAULT_NUMBER_OF_COMPONENTS } from '../constants'
 
 function naiveExponential(x: number, fractionDigits = 3) {
   if (Math.abs(x) < 10000) {
@@ -41,7 +41,7 @@ describe('Exponential formatter', () => {
 })
 
 describe('Hertz formatter', () => {
-  it('leaves reasonable frequencies as is', () => {
+  it('leaves resonable frequencies as is', () => {
     expect(formatHertz(12.345)).toBe('12.345Hz')
     expect(formatHertz(21234.567)).toBe('21234.567Hz')
   })
@@ -83,7 +83,7 @@ describe('Auto key color algorithm', () => {
     )
   })
 
-  it('produces something reasonable with 17 notes', () => {
+  it('produces something resonable with 17 notes', () => {
     const colors = autoKeyColors(17)
     expect(colors.join(' ')).toBe(
       'white white black white white white black white white black white white white black white white black'
@@ -100,26 +100,22 @@ describe('Gap key color algorithm', () => {
   })
 })
 
-describe('URL safe number encoder', () => {
-  it('encodes the whole range', () => {
-    const expected = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_'
-    for (let i = 0; i < 64; ++i) {
-      expect(encodeUrlSafe64(i)).toBe(expected[i])
-    }
-  })
-})
+describe('Chord input parser', () => {
+  it('parses many types of intervals with many separators supported', () => {
+    const text = '3:2400.&11/3|1\\5;[-1,1> [0 0 1>-4/1'
+    const intervals = parseChordInput(text)
+    expect(intervals[0].monzo.vector.length).toBe(DEFAULT_NUMBER_OF_COMPONENTS)
+    expect(intervals[0].type).toBe('ratio')
+    expect(intervals[1].type).toBe('cents')
+    expect(intervals[2].type).toBe('ratio')
+    expect(intervals[3].type).toBe('equal temperament')
+    expect(intervals[4].type).toBe('monzo')
 
-describe('Unique ID generator', () => {
-  it('produces a short URL-friendly identifier', () => {
-    const urlSafe = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_'
-    const id = randomId()
-    expect(id).toHaveLength(9)
-    for (const char of id) {
-      expect(urlSafe).toContain(char)
-    }
-  })
-
-  it("won't collide with this particular identifier for 30 years", () => {
-    expect(randomId()).not.toBe('oKh5gWb04')
+    expect(intervals[0].totalCents()).toBeCloseTo(1901.955)
+    expect(intervals[1].totalCents()).toBeCloseTo(2400)
+    expect(intervals[2].totalCents()).toBeCloseTo(2249.36)
+    expect(intervals[3].totalCents()).toBeCloseTo(240)
+    expect(intervals[4].totalCents()).toBeCloseTo(701.955)
+    expect(intervals[5].totalCents()).toBeCloseTo(386.31)
   })
 })

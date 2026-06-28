@@ -1,144 +1,69 @@
-import { sum } from 'xen-dev-utils/core'
-import { centsToValue, valueToCents } from 'xen-dev-utils/conversion'
-import { AperiodicWave } from 'sw-synth'
-import { ceilPow2 } from './utils'
-import { computed, type ComputedRef } from 'vue'
+// Exponential approach conversion, smaller value results in more eager envelopes
+const TIME_CONSTANT = 0.5
 
-import TIMBRES from '@/timbres.json'
+// Large but finite number to signify voices that are off
+const EXPIRED = 10000
 
-type Spectrum = number[]
-type Timbre = { spectrum: Spectrum; amplitudes: number[]; source?: string }
-
-type Timbres = {
-  plainSpectra: { [key: string]: Spectrum }
-  harmonics: { [key: string]: Spectrum }
-  timbres: { [key: string]: Timbre }
-}
-
-function getPlainSpectrum(id: string): Spectrum {
-  return (TIMBRES as unknown as Timbres).plainSpectra[id]
-}
-
-function getPlainSpectraWaveformNames(): string[] {
-  return Object.keys((TIMBRES as unknown as Timbres).plainSpectra).sort()
-}
-
-function getHarmonicSpectrum(id: string): Spectrum {
-  return (TIMBRES as unknown as Timbres).harmonics[id]
-}
-
-function getHarmonicWaveformNames(): string[] {
-  return Object.keys((TIMBRES as unknown as Timbres).harmonics)
-}
-
-function getTimbre(id: string): Timbre {
-  return (TIMBRES as unknown as Timbres).timbres[id]
-}
-
-function getTimbreWaveformNames(): string[] {
-  return Object.keys((TIMBRES as unknown as Timbres).timbres).sort()
-}
-
-/**
- * Native oscillator waveforms available directly from the Web Audio API.
- */
 export const BASIC_WAVEFORMS = ['sine', 'square', 'sawtooth', 'triangle']
-/**
- * Custom periodic waveforms available in Scale Workshop.
- *
- * `*-classic` variants preserve the brighter Scale Workshop 2 voicing.
- */
-export const CUSTOM_WAVEFORMS = getHarmonicWaveformNames().concat([
+export const WAVEFORMS = BASIC_WAVEFORMS.concat([
+  'warm1',
+  'warm2',
+  'warm3',
+  'warm4',
+  'octaver',
+  'brightness',
+  'harmonicbell',
   'semisine',
   'rich',
   'slender',
   'didacus',
   'bohlen',
   'glass',
-  'boethius',
-  'gold',
-  'parabolic',
-  'rich-classic',
-  'slender-classic',
-  'didacus-classic',
-  'bohlen-classic',
-  'glass-classic',
-  'boethius-classic'
+  'boethius'
 ])
-export const WAVEFORMS = BASIC_WAVEFORMS.concat(CUSTOM_WAVEFORMS)
-/**
- * Lazily-evaluated periodic waves keyed by waveform name.
- */
-export const PERIODIC_WAVES: Record<string, ComputedRef<PeriodicWave>> = {}
+const CUSTOM_WAVEFORMS: Record<string, PeriodicWave> = {}
 
-/**
- * Aperiodic waveform identifiers.
- *
- * Some entries are intentionally duplicated from `timbres.json` to preserve
- * legacy UI ordering.
- */
-export const APERIODIC_WAVEFORMS = [
-  'jegogan',
-  'jublag',
-  'ugal',
-  'gender',
-  'piano',
-  'tin',
-  'bronze',
-  'steel',
-  'silver',
-  'platinum',
-  '12-TET',
-  'harmonium'
-].concat(getPlainSpectraWaveformNames())
-export const APERIODIC_WAVES: Record<string, ComputedRef<AperiodicWave>> = {}
+export function initializeCustomWaveforms(audioContext: AudioContext) {
+  CUSTOM_WAVEFORMS.warm1 = audioContext.createPeriodicWave(
+    new Float32Array([0, 10, 2, 2, 2, 1, 1, 0.5]),
+    new Float32Array([0, 0, 0, 0, 0, 0, 0, 0])
+  )
 
-/**
- * Initializes cached periodic wave definitions for all custom periodic waveforms.
- *
- * @param audioContext Active audio context used to create `PeriodicWave` objects.
- */
-export function initializePeriodic(audioContext: BaseAudioContext) {
-  getHarmonicWaveformNames().forEach((id) => {
-    PERIODIC_WAVES[id] = computed(() => {
-      const harmonicSpectrum = getHarmonicSpectrum(id)
-      return audioContext.createPeriodicWave(
-        new Float32Array(harmonicSpectrum),
-        new Float32Array(harmonicSpectrum.length)
-      )
-    })
-  })
+  CUSTOM_WAVEFORMS.warm2 = audioContext.createPeriodicWave(
+    new Float32Array([0, 10, 5, 3.33, 2, 1]),
+    new Float32Array([0, 0, 0, 0, 0, 0])
+  )
+  CUSTOM_WAVEFORMS.warm3 = audioContext.createPeriodicWave(
+    new Float32Array([0, 10, 5, 5, 3]),
+    new Float32Array([0, 0, 0, 0, 0])
+  )
+  CUSTOM_WAVEFORMS.warm4 = audioContext.createPeriodicWave(
+    new Float32Array([0, 10, 2, 2, 1]),
+    new Float32Array([0, 0, 0, 0, 0])
+  )
+  CUSTOM_WAVEFORMS.octaver = audioContext.createPeriodicWave(
+    new Float32Array([0, 1000, 500, 0, 333, 0, 0, 0, 250, 0, 0, 0, 0, 0, 0, 0, 166]),
+    new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  )
+  CUSTOM_WAVEFORMS.brightness = audioContext.createPeriodicWave(
+    new Float32Array([0, 10, 0, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1, 0.75, 0.5, 0.2, 0.1]),
+    new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  )
+  CUSTOM_WAVEFORMS.harmonicbell = audioContext.createPeriodicWave(
+    new Float32Array([0, 10, 2, 2, 2, 2, 0, 0, 0, 0, 0, 7]),
+    new Float32Array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+  )
 
   // DC-blocked semisine
-  PERIODIC_WAVES.semisine = computed(() => {
-    const semisineSineComponents = new Float32Array(64)
-    const semisineCosineComponents = new Float32Array(64)
-    for (let n = 1; n < 64; ++n) {
-      semisineCosineComponents[n] = 1 / (1 - 4 * n * n)
-    }
-    return audioContext.createPeriodicWave(semisineCosineComponents, semisineSineComponents)
-  })
-
-  // DC-blocked parabolic wave
-  PERIODIC_WAVES.parabolic = computed(() => {
-    const parabolicSineComponents = new Float32Array(64)
-    const parabolicCosineComponents = new Float32Array(64)
-    for (let n = 1; n < 64; ++n) {
-      parabolicCosineComponents[n] = 1 / (n * n)
-    }
-    return audioContext.createPeriodicWave(parabolicCosineComponents, parabolicSineComponents)
-  })
-
-  const zeros = new Float32Array(101)
-
-  // N squared waveform (harmonic entry in the metallic series)
-  PERIODIC_WAVES.gold = computed(() => {
-    const goldComponents = new Float32Array(101)
-    for (let n = 1; n <= 10; ++n) {
-      goldComponents[n * n] = n ** -0.75
-    }
-    return audioContext.createPeriodicWave(zeros, goldComponents)
-  })
+  const semisineSineComponents = new Float32Array(64)
+  const semisineCosineComponents = new Float32Array(64)
+  for (let n = 1; n < 64; ++n) {
+    semisineCosineComponents[n] = 1 / (1 - 4 * n * n)
+  }
+  CUSTOM_WAVEFORMS.semisine = audioContext.createPeriodicWave(
+    semisineCosineComponents,
+    semisineSineComponents
+  )
 
   // Subgroup optimized waveforms
   // Name     | Factors
@@ -149,299 +74,260 @@ export function initializePeriodic(audioContext: BaseAudioContext) {
   // glass    | 2,7,11
   // boethius | 2,3,19
 
-  const subgroupWaveforms = computed(() => {
-    const rich = new Float32Array(101)
-    const richClassic = new Float32Array(101)
-    const slender = new Float32Array(101)
-    const slenderClassic = new Float32Array(101)
-    const didacus = new Float32Array(101)
-    const didacusClassic = new Float32Array(101)
-    const bohlen = new Float32Array(101)
-    const bohlenClassic = new Float32Array(101)
-    const glass = new Float32Array(101)
-    const glassClassic = new Float32Array(101)
-    const boethius = new Float32Array(101)
-    const boethiusClassic = new Float32Array(101)
+  const zeros = new Float32Array(101)
+  const rich = new Float32Array(101)
+  const slender = new Float32Array(101)
+  const didacus = new Float32Array(101)
+  const bohlen = new Float32Array(101)
+  const glass = new Float32Array(101)
+  const boethius = new Float32Array(101)
 
-    // No multiples of 13, 17 or primes above 23
-    const lowPrimeHarmonics = [
-      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 32,
-      33, 35, 36, 38, 40, 42, 44, 45, 48, 49, 50, 54, 55, 56, 57, 60, 63, 64, 66, 70, 72, 75, 76,
-      77, 80, 81, 84, 88, 90, 95, 96, 98, 99, 100
-    ]
+  // No multiples of 13, 17 or primes above 23
+  const lowPrimeHarmonics = [
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 32,
+    33, 35, 36, 38, 40, 42, 44, 45, 48, 49, 50, 54, 55, 56, 57, 60, 63, 64, 66, 70, 72, 75, 76, 77,
+    80, 81, 84, 88, 90, 95, 96, 98, 99, 100
+  ]
 
-    lowPrimeHarmonics.forEach((n) => {
-      // Classics are saw-like
-      const m = 1 / n
-      // Modern is softer and "pink"
-      const p = n ** -1.5
-      if (n % 11 && n % 19) {
-        if (n % 7) {
-          richClassic[n] = m
-          rich[n] = p
-        }
-        if (n % 5) {
-          slenderClassic[n] = m
-          slender[n] = p
-        }
-        if (n % 3) {
-          didacusClassic[n] = m
-          didacus[n] = p
-        }
-        if (n % 2) {
-          bohlenClassic[n] = m
-          bohlen[n] = p
-        }
+  lowPrimeHarmonics.forEach((n) => {
+    const m = 1 / n
+    if (n % 11 && n % 19) {
+      if (n % 7) {
+        rich[n] = m
       }
-      if (n % 3 && n % 5 && n % 19) {
-        if (n % 7 && n % 11) {
-          glassClassic[n] = m
-          glass[n] = p
-        } else {
-          glassClassic[n] = 2 * m
-          glass[n] = 2 * p
-        }
+      if (n % 5) {
+        slender[n] = m
       }
-      if (n % 5 && n % 7 && n % 11) {
-        if (n % 19) {
-          boethiusClassic[n] = m
-          boethius[n] = p
-        } else {
-          boethiusClassic[n] = 2 * m
-          boethius[n] = 2 * p
-        }
+      if (n % 3) {
+        didacus[n] = m
       }
-    })
-    return {
-      richClassic,
-      rich,
-      slenderClassic,
-      slender,
-      didacusClassic,
-      didacus,
-      bohlenClassic,
-      bohlen,
-      glassClassic,
-      glass,
-      boethiusClassic,
-      boethius
+      if (n % 2) {
+        bohlen[n] = m
+      }
+    }
+    if (n % 3 && n % 5 && n % 19) {
+      if (n % 7 && n % 11) {
+        glass[n] = m
+      } else {
+        glass[n] = 2 * m
+      }
+    }
+    if (n % 5 && n % 7 && n % 11) {
+      if (n % 19) {
+        boethius[n] = m
+      } else {
+        boethius[n] = 2 * m
+      }
     }
   })
 
-  PERIODIC_WAVES['rich-classic'] = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.richClassic)
-  )
-  PERIODIC_WAVES.rich = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.rich)
-  )
-  PERIODIC_WAVES['slender-classic'] = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.slenderClassic)
-  )
-  PERIODIC_WAVES.slender = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.slender)
-  )
-  PERIODIC_WAVES['didacus-classic'] = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.didacusClassic)
-  )
-  PERIODIC_WAVES.didacus = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.didacus)
-  )
-  PERIODIC_WAVES['bohlen-classic'] = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.bohlenClassic)
-  )
-  PERIODIC_WAVES.bohlen = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.bohlen)
-  )
-  PERIODIC_WAVES['glass-classic'] = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.glassClassic)
-  )
-  PERIODIC_WAVES.glass = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.glass)
-  )
-  PERIODIC_WAVES['boethius-classic'] = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.boethiusClassic)
-  )
-  PERIODIC_WAVES.boethius = computed(() =>
-    audioContext.createPeriodicWave(zeros, subgroupWaveforms.value.boethius)
-  )
+  CUSTOM_WAVEFORMS.rich = audioContext.createPeriodicWave(zeros, rich)
+  CUSTOM_WAVEFORMS.slender = audioContext.createPeriodicWave(zeros, slender)
+  CUSTOM_WAVEFORMS.didacus = audioContext.createPeriodicWave(zeros, didacus)
+  CUSTOM_WAVEFORMS.bohlen = audioContext.createPeriodicWave(zeros, bohlen)
+  CUSTOM_WAVEFORMS.glass = audioContext.createPeriodicWave(zeros, glass)
+  CUSTOM_WAVEFORMS.boethius = audioContext.createPeriodicWave(zeros, boethius)
 }
 
-function initializeAperiodic(audioContext: BaseAudioContext) {
-  const ns = [...Array(129).keys()]
-  ns.shift()
-  const amplitudes = ns.map((n) => 0.3 * n ** -1.5)
-  const maxNumberOfVoices = 7
-  const tolerance = 0.1 // In cents
-  APERIODIC_WAVES['tin'] = computed(
-    () =>
-      new AperiodicWave(
-        audioContext,
-        ns.map((n) => n ** (8 / 9)),
-        amplitudes,
-        maxNumberOfVoices,
-        tolerance
-      )
-  )
-  APERIODIC_WAVES['steel'] = computed(
-    () =>
-      new AperiodicWave(
-        audioContext,
-        ns.map((n) => n ** 1.5),
-        amplitudes,
-        maxNumberOfVoices,
-        tolerance
-      )
-  )
-  APERIODIC_WAVES['bronze'] = computed(
-    () =>
-      new AperiodicWave(
-        audioContext,
-        ns.map((n) => n ** (4 / 3)),
-        amplitudes,
-        maxNumberOfVoices,
-        tolerance
-      )
-  )
-  APERIODIC_WAVES['silver'] = computed(
-    () =>
-      new AperiodicWave(
-        audioContext,
-        ns.map((n) => n ** (5 / 3)),
-        amplitudes,
-        maxNumberOfVoices,
-        tolerance
-      )
-  )
-  APERIODIC_WAVES['platinum'] = computed(
-    () =>
-      new AperiodicWave(
-        audioContext,
-        ns.slice(0, 32).map((n) => n ** 2.5),
-        amplitudes.slice(0, 32),
-        maxNumberOfVoices,
-        tolerance
-      )
-  )
+// Tracking numbers for voice stealing
+// Technically we could run out of note identifiers,
+// but who is going to play 9007199254740991 notes in one session?
+let NOTE_ID = 1
 
-  APERIODIC_WAVES['gender'] = computed(() => {
-    const spectrum_ = [1, 2.26, 3.358, 3.973, 7.365, 13, 29, 31, 37]
-    const amplitudes_ = [1, 0.6, 0.3, 0.4, 0.2, 0.05, 0.04, 0.01, 0.006].map((a) => 0.4 * a)
+// Tracking numbers for logging purposes
+let VOICE_ID = 1
 
-    // Add shimmer
-    const spectrum: number[] = []
-    const amplitudes: number[] = []
-    for (let i = 0; i < spectrum_.length; ++i) {
-      spectrum.push(spectrum_[i] * 1.004)
-      spectrum.push(spectrum_[i] / 1.004)
-      amplitudes.push(amplitudes_[i])
-      amplitudes.push(0.6 * amplitudes_[i])
-    }
+// Simple combination of envelope and oscillator
+class Voice {
+  age: number
+  audioContext: AudioContext
+  oscillator: OscillatorNode
+  envelope: GainNode
+  log: (msg: string) => void
+  noteId: number
+  voiceId: number
+  lastNoteOff?: () => void
 
-    return new AperiodicWave(audioContext, spectrum, amplitudes, maxNumberOfVoices, tolerance)
-  })
+  constructor(audioContext: AudioContext, destination: AudioNode, log: (msg: string) => void) {
+    this.age = EXPIRED
+    this.audioContext = audioContext
 
-  APERIODIC_WAVES['12-TET'] = computed(() => {
-    const twelveSpectrumCents: number[] = []
-    const twelveAmplitudes: number[] = []
-    for (let h = 1; h <= 128; ++h) {
-      const cents = valueToCents(h)
-      const closest = Math.round(cents / 100) * 100
-      if (Math.abs(cents - closest) < 15) {
-        twelveSpectrumCents.push((3 * closest + cents) / 4)
-        if (h === ceilPow2(h)) {
-          twelveAmplitudes.push(0.3 * h ** -2)
-        } else {
-          twelveAmplitudes.push(0.6 * h ** -1.5)
-        }
-      }
-    }
-    return new AperiodicWave(
-      audioContext,
-      twelveSpectrumCents.map(centsToValue),
-      twelveAmplitudes,
-      maxNumberOfVoices,
-      tolerance
-    )
-  })
-
-  APERIODIC_WAVES['harmonium'] = computed(() => {
-    const harmonics = 60
-    const dutyCycle = 0.43
-    const targetFundamentalHz = 330
-    const soloDetuneHz = 0.18
-    const nearDetuneHz = 0.55
-    const wideDetuneHz = 1.1
-    const shimmerOffsets = [
-      0,
-      soloDetuneHz,
-      -soloDetuneHz,
-      nearDetuneHz,
-      -nearDetuneHz,
-      wideDetuneHz,
-      -wideDetuneHz
-    ]
-    const shimmerWeights = [1, 0.3, 0.3, 0.7, 0.7, 0.4, 0.4]
-    const spectrum: number[] = []
-    const amplitudes: number[] = []
-
-    for (let n = 1; n <= harmonics; ++n) {
-      const pwm = Math.abs((2 / (n * Math.PI)) * Math.sin(n * Math.PI * dutyCycle))
-      const lowpass = Math.exp(-Math.max(0, n - 3) / 28)
-      const brightnessTrim = 1 / (1 + 0.009 * n ** 1.32)
-      const oddBias = n % 2 ? 1.15 : 0.9
-      const fundamentalBoost = n === 1 ? 3.4 : n === 2 ? 1.8 : n === 3 ? 1.4 : 1
-      const baseAmplitude = pwm * lowpass * brightnessTrim * oddBias * fundamentalBoost
-
-      shimmerOffsets.forEach((offsetHz, i) => {
-        const ratio = n * (1 + offsetHz / (targetFundamentalHz * n))
-        spectrum.push(ratio)
-        amplitudes.push(baseAmplitude * shimmerWeights[i])
-      })
-
-      if (n <= 8) {
-        shimmerOffsets.forEach((offsetHz, i) => {
-          const ratio = 2 * n * (1 + offsetHz / (targetFundamentalHz * 2 * n))
-          spectrum.push(ratio)
-          amplitudes.push(baseAmplitude * 0.18 * shimmerWeights[i])
-        })
-      }
-    }
-
-    const normalization = 1.4 / sum(amplitudes)
-    const normalizedAmplitudes = amplitudes.map((a) => a * normalization)
-
-    return new AperiodicWave(
-      audioContext,
-      spectrum,
-      normalizedAmplitudes,
-      maxNumberOfVoices,
-      tolerance
-    )
-  })
-
-  getPlainSpectraWaveformNames().forEach((id) => {
-    APERIODIC_WAVES[id] = computed(() => {
-      const spectrum = getPlainSpectrum(id)
-      const indices = [...spectrum.keys()]
-      const preamps = indices.map((n) => (n + 1) ** -1.5)
-      // 0.730783 is based on the code above for 128 amplitudes: they summed to that
-      const amplitudeCorrection = 0.730783 / sum(preamps)
-      const amps = preamps.map((a) => a * amplitudeCorrection)
-      return new AperiodicWave(audioContext, spectrum, amps, maxNumberOfVoices, tolerance)
+    this.oscillator = this.audioContext.createOscillator()
+    this.envelope = this.audioContext.createGain()
+    this.oscillator.connect(this.envelope).connect(destination)
+    const now = this.audioContext.currentTime
+    this.envelope.gain.setValueAtTime(0, now)
+    this.oscillator.start(now)
+    this.oscillator.addEventListener('ended', () => {
+      this.envelope.disconnect()
+      this.oscillator.disconnect()
     })
-  })
 
-  getTimbreWaveformNames().forEach((id) => {
-    APERIODIC_WAVES[id] = computed(() => {
-      const { spectrum, amplitudes } = getTimbre(id)
-      return new AperiodicWave(audioContext, spectrum, amplitudes, maxNumberOfVoices, tolerance)
-    })
-  })
+    this.log = log
+
+    this.noteId = 0
+    this.voiceId = VOICE_ID++
+  }
+
+  noteOn(
+    audioDelay: number,
+    frequency: number,
+    velocity: number,
+    waveform: string,
+    attackTime: number,
+    decayTime: number,
+    sustainLevel: number,
+    releaseTime: number,
+    noteId: number
+  ) {
+    this.log(`Voice ${this.voiceId}: Age = ${this.age}, note = ${noteId}, frequency = ${frequency}`)
+    this.age = 0
+    this.noteId = noteId
+
+    if (BASIC_WAVEFORMS.includes(waveform)) {
+      this.oscillator.type = waveform as OscillatorType
+    } else {
+      this.oscillator.setPeriodicWave(CUSTOM_WAVEFORMS[waveform])
+    }
+
+    const now = this.audioContext.currentTime + audioDelay
+    this.log(`Voice ${this.voiceId}: On time = ${now}, sustain time = ${now + attackTime}`)
+    this.oscillator.frequency.setValueAtTime(frequency, now)
+    this.envelope.gain.setValueAtTime(0, now)
+    this.envelope.gain.linearRampToValueAtTime(velocity, now + attackTime)
+    this.envelope.gain.setTargetAtTime(
+      velocity * sustainLevel,
+      now + attackTime,
+      decayTime * TIME_CONSTANT
+    )
+
+    const noteOff = () => {
+      // Do nothing if the voice has been stolen or already released.
+      if (this.noteId !== noteId) {
+        this.log(`Voice ${this.voiceId} had been stolen. Ignoring note off`)
+        return
+      }
+      this.age = EXPIRED
+      const then = this.audioContext.currentTime
+      this.log(`Voice ${this.voiceId}: Off time = ${then}`)
+      this.envelope.gain.cancelScheduledValues(then)
+      // NOTE: Canceling scheduled values doesn't hold intermediate values of linear ramps
+      if (then < now + attackTime) {
+        // Calculate correct linear ramp hold value
+        this.envelope.gain.setValueAtTime((velocity * (then - now)) / attackTime, then)
+      }
+      this.envelope.gain.setTargetAtTime(0, then, releaseTime * TIME_CONSTANT)
+
+      // We're done here.
+      this.noteId = -1
+    }
+
+    this.lastNoteOff = noteOff
+
+    return noteOff
+  }
+
+  dispose() {
+    this.oscillator.stop()
+  }
 }
 
-export function initializeCustomWaves(audioContext: BaseAudioContext) {
-  initializePeriodic(audioContext)
-  initializeAperiodic(audioContext)
+// Simple web audio synth of finite polyphony.
+export class Synth {
+  audioContext: AudioContext
+  destination: AudioNode
+  audioDelay: number
+  waveform: string
+  attackTime: number
+  decayTime: number
+  sustainLevel: number
+  releaseTime: number
+  log: (msg: string) => void
+  voices: Voice[]
+
+  constructor(
+    audioContext: AudioContext,
+    destination: AudioNode,
+    audioDelay = 0.001,
+    waveform = 'semisine',
+    attackTime = 0.01,
+    decayTime = 0.3,
+    sustainLevel = 0.8,
+    releaseTime = 0.01,
+    maxPolyphony = 6,
+    log?: (msg: string) => void
+  ) {
+    this.audioContext = audioContext
+    this.destination = destination
+    this.audioDelay = audioDelay
+    this.waveform = waveform
+    this.attackTime = attackTime
+    this.decayTime = decayTime
+    this.sustainLevel = sustainLevel
+    this.releaseTime = releaseTime
+    if (log === undefined) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      this.log = (msg: string) => {}
+    } else {
+      this.log = log
+    }
+
+    this.voices = []
+    this.setPolyphony(maxPolyphony)
+  }
+
+  setPolyphony(maxPolyphony: number) {
+    while (this.voices.length > maxPolyphony) {
+      this.voices.pop()?.dispose()
+    }
+    while (this.voices.length < maxPolyphony) {
+      this.voices.push(new Voice(this.audioContext, this.destination, this.log))
+    }
+  }
+
+  get maxPolyphony() {
+    return this.voices.length
+  }
+  set maxPolyphony(value: number) {
+    this.setPolyphony(value)
+  }
+
+  noteOn(frequency: number, velocity: number) {
+    // Allocate voices based on age.
+    // Boils down to:
+    // a) Pick the oldest released voice.
+    // b) If there are no released voices, replace the oldest currently playing voice.
+    let oldestVoice: Voice | undefined
+    for (const voice of this.voices) {
+      voice.age++
+      if (oldestVoice === undefined || voice.age > oldestVoice.age) {
+        oldestVoice = voice
+      }
+    }
+    if (oldestVoice === undefined) {
+      return () => {}
+    }
+
+    return oldestVoice.noteOn(
+      this.audioDelay,
+      frequency,
+      velocity,
+      this.waveform,
+      this.attackTime,
+      this.decayTime,
+      this.sustainLevel,
+      this.releaseTime,
+      NOTE_ID++
+    )
+  }
+
+  allNotesOff() {
+    for (const voice of this.voices) {
+      if (voice.lastNoteOff !== undefined) {
+        voice.lastNoteOff()
+      }
+    }
+  }
 }
 
 // Simple feedback loop bouncing sound between left and right channels.

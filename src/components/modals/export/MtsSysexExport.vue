@@ -3,21 +3,18 @@ import MtsSysexExporter from '@/exporters/mts-sysex'
 import { sanitizeFilename } from '@/utils'
 import { ref, watch } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
+import type { Scale } from 'scale-workshop-core'
+import { clamp } from 'xen-dev-utils'
 import type { ExporterParams } from '@/exporters/base'
-import type { Scale } from '@/scale'
-import type { Interval } from 'sonic-weave/interval'
-import { useExportStore } from '@/stores/export'
 
 const props = defineProps<{
   show: boolean
   newline: string
+  scaleName: string
+  baseMidiNote: number
   midiOctaveOffset: number
-  relativeIntervals: Interval[]
   scale: Scale
-  labels: string[]
 }>()
-
-const store = useExportStore()
 
 const emit = defineEmits(['confirm', 'cancel'])
 
@@ -29,28 +26,39 @@ function clampName(name: string): string {
   return name.slice(0, 16)
 }
 
-// This state is intentionally not persisted
-const name = ref(clampName(props.scale.title))
+const name = ref(clampName(props.scaleName))
 
 function nameInputCallback(nameInput: string): void {
   name.value = clampName(nameInput)
 }
 
 watch(
-  () => props.scale.title,
+  () => props.scaleName,
   (newName) => nameInputCallback(newName),
   { immediate: true }
 )
+
+function formatPresetIndex(input: string): string {
+  const number = parseInt(input.replace(/\D/g, ''))
+  if (Number.isNaN(number)) return '0'
+  return String(clamp(0, 127, number))
+}
+
+const presetIndex = ref('0')
+
+function presetIndexInputCallback(indexInput: string): void {
+  presetIndex.value = formatPresetIndex(indexInput)
+}
 
 function doExport() {
   const params: ExporterParams = {
     newline: props.newline,
     scale: props.scale,
-    filename: sanitizeFilename(props.scale.title),
-    relativeIntervals: props.relativeIntervals,
+    filename: sanitizeFilename(props.scaleName),
+    baseMidiNote: props.baseMidiNote,
     midiOctaveOffset: props.midiOctaveOffset,
-    labels: props.labels,
-    presetIndex: store.presetIndex
+    name: name.value,
+    presetIndex: parseInt(presetIndex.value)
   }
 
   const exporter = new MtsSysexExporter(params)
@@ -81,7 +89,7 @@ function doExport() {
           <label for="preset-index">
             Preset Index&nbsp;
             <span
-              @click.prevent
+              @click="$event.preventDefault()"
               class="info-question"
               title="Refer to your synth's manual for a valid range"
             >
@@ -90,11 +98,9 @@ function doExport() {
           <input
             class="half"
             id="preset-index"
-            type="number"
-            min="0"
-            max="127"
-            step="1"
-            v-model="store.presetIndex"
+            type="text"
+            v-model="presetIndex"
+            @input="presetIndexInputCallback(presetIndex)"
           />
         </div>
       </div>

@@ -1,27 +1,49 @@
-import { reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
-import { useSessionIdStore } from './session-id'
-import { UNIX_NEWLINE, OCTAVE } from '@/constants'
-import { syncValues } from '@/utils'
+import {
+  Interval,
+  Scale,
+  parseLine,
+  type IntervalOptions,
+  reverseParseScale
+} from 'scale-workshop-core'
+import { DEFAULT_NUMBER_OF_COMPONENTS, NUMBER_OF_NOTES, UNIX_NEWLINE } from '@/constants'
+import { computeWhiteIndices } from '@/midi'
+import { mapWhiteAsdfBlackQwerty, mapWhiteQweZxcBlack123Asd } from '@/keyboard-mapping'
+import { arraysEqual } from 'xen-dev-utils'
+import { type AccidentalStyle, syncValues } from '@/utils'
+import { midiKeyInfo } from 'xen-midi'
 
-/**
- * Global UI/application preference store and lightweight shared runtime state.
- */
 export const useStateStore = defineStore('state', () => {
-  const { invalidateUploadedId } = useSessionIdStore()
-
-  // Mapping from MIDI index to number of interfaces currently pressing the key down
+  // Nonpersistent state of the application
+  const scaleName = ref('')
+  const scaleLines = ref<string[]>([])
+  const scale = reactive(Scale.fromIntervalArray([parseLine('1/1', DEFAULT_NUMBER_OF_COMPONENTS)]))
+  const baseMidiNote = ref(69)
+  const keyColors = ref([
+    'white',
+    'black',
+    'white',
+    'white',
+    'black',
+    'white',
+    'black',
+    'white',
+    'white',
+    'black',
+    'white',
+    'black'
+  ])
+  const isomorphicVertical = ref(5)
+  const isomorphicHorizontal = ref(1)
+  // Keyboard mode affects both physical qwerty and virtual keyboards
+  const keyboardMode = ref<'isomorphic' | 'piano'>('isomorphic')
+  // Physical layout mimics a piano layout in one or two layers
+  const pianoMode = ref<'Asdf' | 'QweZxc0' | 'QweZxc1'>('Asdf')
+  const equaveShift = ref(0)
+  const degreeShift = ref(0)
   const heldNotes = reactive(new Map<number, number>())
   const typingActive = ref(true)
-
-  const latticeType = ref<'ji' | 'et' | 'cycles' | '3d' | 'auto'>('auto')
-  const trailLongevity = ref(70)
-  const maxOtonalRoot = ref(16)
-  const maxUtonalRoot = ref(23)
-  const maxDivisions = ref(31)
-  const nedjiEquave = ref(OCTAVE)
-  const nedjiEquaveString = ref('2/1')
-  const intervalMatrixArrangement = ref<'modes' | 'symmetric'>('modes')
 
   // These user preferences are fetched from local storage.
   const storage = window.localStorage
@@ -32,29 +54,21 @@ export const useStateStore = defineStore('state', () => {
   const colorScheme = ref<'light' | 'dark'>(
     (storedScheme ?? mediaScheme) === 'dark' ? 'dark' : 'light'
   )
+  const centsFractionDigits = ref(parseInt(storage.getItem('centsFractionDigits') ?? '3', 10))
+  const decimalFractionDigits = ref(parseInt(storage.getItem('decimalFractionDigits') ?? '5', 10))
   const showVirtualQwerty = ref(storage.getItem('showVirtualQwerty') === 'true')
-  const showMosTab = ref(storage.getItem('showMosTab') === 'true')
-  const releaseOnBlur = ref(storage.getItem('releaseOnBlur') === 'true')
+  const midiOctaveOffset = ref(parseInt(storage.getItem('midiOctaveOffset') ?? '-1', 10))
   const showKeyboardLabel = ref(storage.getItem('showKeyboardLabel') !== 'false')
   const showKeyboardCents = ref(storage.getItem('showKeyboardCents') !== 'false')
   const showKeyboardRatio = ref(storage.getItem('showKeyboardRatio') !== 'false')
   const showKeyboardFrequency = ref(storage.getItem('showKeyboardFrequency') !== 'false')
-  const slideVirtualKeyboard = ref(storage.getItem('slideVirtualKeyboard') !== 'false')
-  const bendDragPixels = ref(parseInt(storage.getItem('bendDragPixels') ?? '150', 10))
-  const bendDragAxis = ref<'x' | 'y'>(storage.getItem('bendDragAxis') === 'x' ? 'x' : 'y')
 
   // Analysis preferences
   const intervalMatrixIndexing = ref(parseInt(storage.getItem('intervalMatrixIndexing') ?? '0', 10))
-  const maxMatrixWidth = ref(parseInt(storage.getItem('maxMatrixWidth') ?? '100', 10))
-  const calculateConstantStructureViolations = ref(
-    storage.getItem('calculateConstantStructureViolations') === 'true'
+  const accidentalPreference = ref<AccidentalStyle>(
+    (localStorage.getItem('accidentalPreference') as AccidentalStyle) ?? 'double'
   )
-  const showModesUnityColumn = ref(storage.getItem('showModesUnityColumn') !== 'false')
-  const calculateVariety = ref(storage.getItem('calculateVariety') === 'true')
-  const calculateBrightness = ref(storage.getItem('calculateBrightness') === 'true')
-  const constantStructureMargin = ref(
-    parseInt(storage.getItem('constantStructureMargin') ?? '0', 10)
-  )
+
   // Special keyboard codes also from local storage.
   const deactivationCode = ref(storage.getItem('deactivationCode') ?? 'Backquote')
   const equaveUpCode = ref(storage.getItem('equaveUpCode') ?? 'NumpadMultiply')
@@ -62,111 +76,178 @@ export const useStateStore = defineStore('state', () => {
   const degreeUpCode = ref(storage.getItem('degreeUpCode') ?? 'NumpadAdd')
   const degreeDownCode = ref(storage.getItem('degreeDownCode') ?? 'NumpadSubtract')
 
-  // Opt-in for user statistics
-  const shareStatistics = ref(storage.getItem('shareStatistics') === 'true')
+  // === Computed state ===
+  const frequencies = computed(() =>
+    scale.getFrequencyRange(-baseMidiNote.value, NUMBER_OF_NOTES - baseMidiNote.value)
+  )
 
-  // Debugging features.
-  const debug = ref(storage.getItem('debug') === 'true')
+  const baseIndex = computed(
+    () => baseMidiNote.value + equaveShift.value * scale.size + degreeShift.value
+  )
 
-  /**
-   * Convert live state to a format suitable for storing on the server.
-   */
-  function toJSON() {
-    return { latticeType: latticeType.value }
-  }
-
-  watch(latticeType, () => {
-    invalidateUploadedId()
+  // Offset such that base MIDI note doesn't move in "simple" white mode.
+  const whiteModeOffset = computed(() => {
+    const baseInfo = midiKeyInfo(baseMidiNote.value)
+    if (baseInfo.whiteNumber === undefined) {
+      return baseMidiNote.value - baseInfo.sharpOf - 1
+    }
+    return baseMidiNote.value - baseInfo.whiteNumber
   })
 
-  /**
-   * Apply revived state to current state.
-   * @param data JSON data as an Object instance.
-   */
-  function fromJSON(data: { latticeType?: 'ji' | 'et' | 'cycles' | '3d' | 'auto' }) {
-    if (data.latticeType) {
-      latticeType.value = data.latticeType
+  // For midi mapping
+  const whiteIndices = computed(() => computeWhiteIndices(baseMidiNote.value, keyColors.value))
+
+  const keyboardMapping = computed<Map<string, number>>(() => {
+    const size = scale.size
+    const baseIndex = baseMidiNote.value + equaveShift.value * size + degreeShift.value
+    if (pianoMode.value === 'Asdf') {
+      return mapWhiteAsdfBlackQwerty(keyColors.value, baseMidiNote.value, baseIndex)
+    } else if (pianoMode.value === 'QweZxc0') {
+      return mapWhiteQweZxcBlack123Asd(keyColors.value, size, baseMidiNote.value, baseIndex, 0)
+    } else {
+      return mapWhiteQweZxcBlack123Asd(keyColors.value, size, baseMidiNote.value, baseIndex, 1)
     }
+  })
+
+  // === State updates ===
+  function updateFromScaleLines(lines: string[]) {
+    if (arraysEqual(lines, scaleLines.value)) {
+      return
+    }
+    scaleLines.value = lines
+    const intervals: Interval[] = []
+    const options: IntervalOptions = {
+      centsFractionDigits: centsFractionDigits.value,
+      decimalFractionDigits: decimalFractionDigits.value
+    }
+    lines.forEach((line) => {
+      try {
+        const interval = parseLine(line, DEFAULT_NUMBER_OF_COMPONENTS, options)
+        intervals.push(interval)
+      } catch {
+        /* empty */
+      }
+    })
+    if (!intervals.length) {
+      intervals.push(parseLine('1/1', DEFAULT_NUMBER_OF_COMPONENTS, options))
+    }
+
+    const surrogate = Scale.fromIntervalArray(intervals)
+    scale.intervals = surrogate.intervals
+    scale.equave = surrogate.equave
   }
+
+  function updateFromScale(surrogate: Scale) {
+    scale.intervals = surrogate.intervals
+    scale.equave = surrogate.equave
+    scaleLines.value = reverseParseScale(scale)
+  }
+
+  // Computed wrappers to avoid triggering a watcher loop.
+  const scaleWrapper = computed({
+    get() {
+      return scale
+    },
+    set: updateFromScale
+  })
+
+  const scaleLinesWrapper = computed({
+    get() {
+      return scaleLines.value
+    },
+    set: updateFromScaleLines
+  })
 
   // Local storage watchers
   syncValues({
     newline,
+    centsFractionDigits,
+    decimalFractionDigits,
     showVirtualQwerty,
-    showMosTab,
-    releaseOnBlur,
+    midiOctaveOffset,
+    accidentalPreference,
     showKeyboardLabel,
     showKeyboardCents,
     showKeyboardRatio,
     showKeyboardFrequency,
-    slideVirtualKeyboard,
-    bendDragPixels,
-    bendDragAxis,
     intervalMatrixIndexing,
-    maxMatrixWidth,
-    calculateConstantStructureViolations,
-    showModesUnityColumn,
-    calculateVariety,
-    calculateBrightness,
-    constantStructureMargin,
+    // keymaps
     deactivationCode,
     equaveUpCode,
     equaveDownCode,
     degreeUpCode,
-    degreeDownCode,
-    shareStatistics,
-    debug
+    degreeDownCode
   })
   watch(
     colorScheme,
     (newValue) => {
-      storage.setItem('colorScheme', newValue)
+      window.localStorage.setItem('colorScheme', newValue)
       document.documentElement.setAttribute('data-theme', newValue)
     },
     { immediate: true }
   )
 
+  // Sanity watchers
+  watch(baseMidiNote, (newValue) => {
+    if (isNaN(newValue)) {
+      baseMidiNote.value = 69
+    } else if (Math.round(newValue) != newValue) {
+      baseMidiNote.value = Math.round(newValue)
+    }
+  })
+
+  // Methods
+  function getFrequency(index: number) {
+    if (index >= 0 && index < frequencies.value.length) {
+      return frequencies.value[index]
+    } else {
+      // Support more than 128 notes with some additional computational cost
+      return scale.getFrequency(index - baseMidiNote.value)
+    }
+  }
+
   return {
     // Live state
+    scaleName,
+    scaleLinesRaw: scaleLines,
+    scaleLines: scaleLinesWrapper,
+    scaleRaw: scale,
+    scale: scaleWrapper,
+    baseMidiNote,
+    keyColors,
+    isomorphicVertical,
+    isomorphicHorizontal,
+    keyboardMode,
+    pianoMode,
+    equaveShift,
+    degreeShift,
     heldNotes,
     typingActive,
-    latticeType,
-    trailLongevity,
-    maxOtonalRoot,
-    maxUtonalRoot,
-    maxDivisions,
-    nedjiEquave,
-    nedjiEquaveString,
-    intervalMatrixArrangement,
     // Persistent state
     newline,
     colorScheme,
+    centsFractionDigits,
+    decimalFractionDigits,
     showVirtualQwerty,
-    showMosTab,
-    releaseOnBlur,
+    midiOctaveOffset,
     showKeyboardLabel,
     showKeyboardCents,
     showKeyboardRatio,
     showKeyboardFrequency,
-    slideVirtualKeyboard,
-    bendDragPixels,
-    bendDragAxis,
     intervalMatrixIndexing,
-    maxMatrixWidth,
-    calculateConstantStructureViolations,
-    showModesUnityColumn,
-    calculateVariety,
-    calculateBrightness,
-    constantStructureMargin,
     deactivationCode,
     equaveUpCode,
     equaveDownCode,
     degreeUpCode,
     degreeDownCode,
-    shareStatistics,
-    debug,
+    accidentalPreference,
+    // Computed state
+    frequencies,
+    baseIndex,
+    whiteModeOffset,
+    whiteIndices,
+    keyboardMapping,
     // Methods
-    toJSON,
-    fromJSON
+    getFrequency
   }
 })

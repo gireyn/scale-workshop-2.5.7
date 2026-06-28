@@ -1,31 +1,31 @@
-import { ftom, mtof } from 'xen-dev-utils/conversion'
 import { APP_TITLE } from '@/constants'
 import { midiNoteNumberToName } from '@/utils'
 import { BaseExporter, type ExporterParams } from '@/exporters/base'
+import { ftom, mtof } from 'xen-dev-utils'
 
 export default class KontaktExporter extends BaseExporter {
   static tuningMaxSize = 128
   static baseFrequency = mtof(0)
 
+  params: ExporterParams
   appTitle: string
 
   constructor(params: ExporterParams) {
-    super(params)
+    if (params.lines === undefined) {
+      throw new Error('Missing text lines')
+    }
+    super()
+    this.params = params
     this.appTitle = params.appTitle || APP_TITLE
-  }
-
-  validateParams() {
-    // No need to validate relativeIntervals.
   }
 
   getFileContents() {
     const newline = this.params.newline
-    const baseMidiNote = this.params.scale.baseMidiNote
-    const remapSamples = this.params.remapKontaktSamples ?? true
+    const baseMidiNote = this.params.baseMidiNote
 
     // assemble the kontakt script contents
     let file = '{**************************************' + newline
-    file += this.params.scale.title + newline
+    file += this.params.name + newline
     file +=
       'MIDI note ' +
       baseMidiNote.toString() +
@@ -46,11 +46,7 @@ export default class KontaktExporter extends BaseExporter {
     file += 'declare $key' + newline + newline
 
     for (let i = 0; i < KontaktExporter.tuningMaxSize; i++) {
-      let [noteNumber, cents] = ftom(this.params.scale.getFrequency(i))
-      if (!remapSamples) {
-        cents += (noteNumber - i) * 100
-        noteNumber = i
-      }
+      const [noteNumber, cents] = ftom(this.params.scale.getFrequency(i - baseMidiNote))
 
       // if we're out of range of the default Kontakt tuning, leave note as default tuning
       if (noteNumber < 0 || noteNumber >= KontaktExporter.tuningMaxSize) {
@@ -58,7 +54,7 @@ export default class KontaktExporter extends BaseExporter {
         file += '%tune[' + i + '] := 0' + newline
       }
 
-      // success, we're in range of another note, so we'll change the tuning +/- 50c (or by a lot if not remapping)
+      // success, we're in range of another note, so we'll change the tuning +/- 50c
       else {
         file += '%keynum[' + i + '] := ' + noteNumber + newline
         file += '%tune[' + i + '] := ' + (cents * 1000).toFixed() + newline

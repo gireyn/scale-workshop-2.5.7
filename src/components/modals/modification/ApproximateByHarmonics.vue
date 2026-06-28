@@ -1,45 +1,29 @@
 <script setup lang="ts">
 import Modal from '@/components/ModalDialog.vue'
+import type { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
 import { computed } from 'vue'
-import { useScaleStore } from '@/stores/scale'
-import { valueToCents } from 'xen-dev-utils/conversion'
+import { centsToValue } from 'xen-dev-utils'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
+  scale: Scale
 }>()
 
-const emit = defineEmits(['done', 'cancel'])
+const emit = defineEmits(['update:scale', 'cancel'])
 
 const modal = useModalStore()
-const scale = useScaleStore()
 
 const maxDenominator = computed(() => {
-  let maxRatio = 1
-  for (const ratio of scale.scale.intervalRatios) {
-    maxRatio = Math.max(maxRatio, Math.abs(ratio), 1 / Math.abs(ratio))
+  let maxCents = 0
+  for (let i = 0; i < props.scale.size; ++i) {
+    maxCents = Math.max(Math.abs(props.scale.getCents(i)))
   }
-  return Math.floor(Number.MAX_SAFE_INTEGER / maxRatio)
+  return Math.floor(Number.MAX_SAFE_INTEGER / centsToValue(maxCents))
 })
 
-const error = computed(() => {
-  let result = 0
-  for (const ratio of scale.scale.intervalRatios) {
-    const approximand = Math.abs(ratio * modal.largeInteger)
-    const harmonic = Math.round(approximand)
-    result = Math.max(result, Math.abs(valueToCents(approximand / harmonic)))
-  }
-  return result
-})
-
-function modify(expand = true) {
-  scale.sourceText += `\ntoHarmonics(${modal.largeInteger})`
-  if (expand) {
-    const { visitor, defaults } = scale.getUserScopeVisitor()
-    scale.sourceText = visitor.expand(defaults)
-  }
-  scale.computeScale()
-  emit('done')
+function modify() {
+  emit('update:scale', props.scale.approximateHarmonics(modal.largeInteger))
 }
 </script>
 
@@ -61,14 +45,6 @@ function modify(expand = true) {
             v-model="modal.largeInteger"
           />
         </div>
-        <p>Error: {{ error.toFixed(5) }} c</p>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="modify(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="modify(false)">Raw</button>
       </div>
     </template>
   </Modal>

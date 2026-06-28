@@ -1,16 +1,9 @@
-import { centsToValue } from 'xen-dev-utils/conversion'
-import { circleDifference } from 'xen-dev-utils/core'
-import { Fraction, lcm } from 'xen-dev-utils/fraction'
 import { computed, reactive, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { DEFAULT_NUMBER_OF_COMPONENTS, FIFTH, OCTAVE } from '@/constants'
-import { Interval } from 'sonic-weave/interval'
-import { TimeMonzo } from 'sonic-weave/monzo'
-import { parseInterval } from '@/utils'
+import { Fraction, centsToValue, circleDifference, lcm } from 'xen-dev-utils'
+import { parseLine } from 'scale-workshop-core'
 
-/**
- * Store for historical temperament exploration and preset generation helpers.
- */
 export const useHistoricalStore = defineStore('historical', () => {
   const method = ref<'simple' | 'target' | 'well temperament'>('simple')
 
@@ -25,9 +18,7 @@ export const useHistoricalStore = defineStore('historical', () => {
 
   const pureGenerator = ref(FIFTH)
   const pureGeneratorString = ref('3/2')
-  const target = ref(
-    new Interval(TimeMonzo.fromFraction('7/4', DEFAULT_NUMBER_OF_COMPONENTS), 'linear')
-  )
+  const target = ref(parseLine('7/4', DEFAULT_NUMBER_OF_COMPONENTS))
   const targetString = ref('7/4')
   const searchRange = ref(11)
   const period = ref(OCTAVE)
@@ -35,9 +26,7 @@ export const useHistoricalStore = defineStore('historical', () => {
   const pureExponent = ref(10)
   const temperingStrength = ref(1)
 
-  const wellComma = ref(
-    new Interval(TimeMonzo.fromFraction('531441/524288', DEFAULT_NUMBER_OF_COMPONENTS), 'linear')
-  )
+  const wellComma = ref(parseLine('531441/524288', DEFAULT_NUMBER_OF_COMPONENTS))
   const wellCommaString = ref('531441/524288')
   const wellCommaFractionStrings = reactive<Map<number, string>>(
     new Map([
@@ -56,8 +45,6 @@ export const useHistoricalStore = defineStore('historical', () => {
   )
 
   const selectedWellPreset = ref('vallotti')
-
-  const up = computed(() => size.value - 1 - down.value)
 
   type Candidate = {
     exponent: number
@@ -94,9 +81,9 @@ export const useHistoricalStore = defineStore('historical', () => {
   })
 
   const wellIntervals = computed(() => {
-    const comma = wellComma.value.value
+    const comma = wellComma.value.asType('any')
     // Not a generator in the strictest sense. It accumulates offsets along the way.
-    let generator = FIFTH.value.pow(0)
+    let generator = FIFTH.mul(0).asType('any')
 
     // Unison
     const result = [generator]
@@ -107,23 +94,23 @@ export const useHistoricalStore = defineStore('historical', () => {
       try {
         frac = new Fraction(wellCommaFractionStrings.get(-i - 1) ?? '0')
       } catch {
-        // empty
+        /* empty */
       }
-      generator = generator.div(FIFTH.value).div(comma.pow(frac)).reduce(OCTAVE.value)
+      generator = generator.sub(FIFTH).sub(comma.mul(frac)).mmod(OCTAVE)
       result.unshift(generator)
     }
 
     // Along the spiral of fifths
-    generator = FIFTH.value.pow(0)
+    generator = FIFTH.mul(0).asType('any')
     // Note that this intentionally overshoots by one to reach the enharmonic
     for (let i = 0; i < size.value - down.value; ++i) {
       let frac = new Fraction(0)
       try {
         frac = new Fraction(wellCommaFractionStrings.get(i) ?? '0')
       } catch {
-        // empty
+        /* empty */
       }
-      generator = generator.mul(FIFTH.value).mul(comma.pow(frac)).reduce(OCTAVE.value)
+      generator = generator.add(FIFTH).add(comma.mul(frac)).mmod(OCTAVE)
       result.push(generator)
     }
 
@@ -132,36 +119,31 @@ export const useHistoricalStore = defineStore('historical', () => {
 
   const ZERO = new Fraction(0)
 
-  const wellCommaFractions = computed(() => {
-    const result: Fraction[] = []
-    for (let i = 0; i < size.value; ++i) {
-      let frac = ZERO
-      try {
-        frac = new Fraction(wellCommaFractionStrings.get(i - down.value) ?? '0')
-      } catch {
-        // Empty
-      }
-      result.push(frac)
-    }
-    return result
-  })
-
   const allWellCommasAreZero = computed(() => {
-    return wellCommaFractions.value.every((f) => f.n === 0)
+    const d = down.value
+    for (let i = 0; i < size.value; ++i) {
+      let frac: Fraction
+      try {
+        frac = new Fraction(wellCommaFractionStrings.get(i) ?? '0')
+      } catch {
+        return false
+      }
+      if (wellCommaFractionStrings.has(i - d) && !ZERO.equals(frac)) {
+        return false
+      }
+    }
+    return true
   })
 
   // This is a simplified and linearized model of beating
   function equalizeBeating() {
-    const monzo = generator.value.value
+    const monzo = generator.value.monzo
     const g = monzo.valueOf()
     let multiGenExponent = 1
-    if (monzo instanceof TimeMonzo) {
-      multiGenExponent = monzo.primeExponents.reduce(
-        (denom, component) => lcm(component.d, denom),
-        1
-      )
+    if (!monzo.cents) {
+      multiGenExponent = monzo.vector.reduce((denom, component) => lcm(component.d, denom), 1)
     }
-    const t = target.value.valueOf()
+    const t = target.value.monzo.valueOf()
 
     const generatorMaxBeats = Math.abs(g * (1 - centsToValue(tempering.value * multiGenExponent)))
     const targetMaxBeats = Math.abs(t * (1 - centsToValue(tempering.value * pureExponent.value)))
@@ -203,7 +185,7 @@ export const useHistoricalStore = defineStore('historical', () => {
       name: 'Helmholtz aka Schismatic',
       down: 11,
       size: 24,
-      generator: '3/2 % 32805/32768/^8'
+      generator: '3/2 - 1\\8<32805/32768>'
     },
     twelve: {
       name: '12-tone equal temperament',
@@ -212,33 +194,33 @@ export const useHistoricalStore = defineStore('historical', () => {
     },
     eight: {
       name: '1/8-comma Meantone',
-      generator: '3/2 % 531441/524288/^8',
+      generator: '3/2 - 1\\8<531441/524288>',
       down: 5
     },
     sixth: {
       name: '1/6-comma Meantone',
       down: 5,
-      generator: '3/2 % 531441/524288/^6'
+      generator: '3/2 - 1\\6<531441/524288>'
     },
     fifth: {
       name: '1/5-comma Meantone',
       down: 3,
-      generator: '3/2 % 81/80/^5'
+      generator: '3/2 - 1\\5<81/80>'
     },
     quarter: {
       name: '1/4-comma Meantone',
       down: 3,
-      generator: '3/2 % 81/80/^4'
+      generator: '3/2 - 1\\4<81/80>'
     },
     twosevenths: {
       name: '2/7-comma Meantone',
       down: 3,
-      generator: '3/2 % 81/80^2/7'
+      generator: '3/2 - 2\\7<81/80>'
     },
     third: {
       name: '1/3-comma Meantone',
       down: 3,
-      generator: '3/2 % 81/80/^3'
+      generator: '3/2 - 1\\3<81/80>'
     }
   }
 
@@ -255,12 +237,6 @@ export const useHistoricalStore = defineStore('historical', () => {
       down: 1,
       comma: '531441/524288',
       commaFractions: '0,0,0,0,0,0,-1/2,0,0,0,0'
-    },
-    werckmeisterpc: {
-      name: 'Werckmeister (1/6 p.c.) 1698',
-      down: 2,
-      comma: '531441/524288',
-      commaFractions: '-1/6,-1/6,-1/6,-1/6,-1/6,-1/6,-1/6,-1/6,-1/6,-1/24,1/6,1/6'
     },
     neidhardtgrosse: {
       name: 'Neidhardt Große Stadt 1724',
@@ -322,12 +298,6 @@ export const useHistoricalStore = defineStore('historical', () => {
       comma: '531441/524288',
       commaFractions: '0,0,0,0,-1/6,-1/6,-1/6,-1/6,-1/6,-1/18,-1/18'
     },
-    ramos: {
-      name: 'Ramos 1482',
-      down: 5,
-      comma: '81/80',
-      commaFractions: '0,0,0,0,-1,0,0,0,0,0,0'
-    },
     werckmeister3: {
       name: 'Werckmeister III 1691',
       down: 3,
@@ -378,29 +348,25 @@ export const useHistoricalStore = defineStore('historical', () => {
     }
   }
 
-  // Record order is supposed to be guaranteed since ES2015, but that doesn't seem to be the case...
-  // oxlint-disable-next-line eslint-plugin-unicorn(no-useless-spread)
+  // Record order is supposed to be quaranteed since ES2015, but that doesn't seem to be the case...
   const presetKeys: string[] = [...Object.keys(presets)]
 
   // Sort by wideness of the generator
   presetKeys.sort(
     (a, b) =>
-      parseInterval(presets[b].generator).totalCents() -
-      parseInterval(presets[a].generator).totalCents()
+      parseLine(presets[b].generator, DEFAULT_NUMBER_OF_COMPONENTS).totalCents() -
+      parseLine(presets[a].generator, DEFAULT_NUMBER_OF_COMPONENTS).totalCents()
   )
 
-  // oxlint-disable-next-line eslint-plugin-unicorn(no-useless-spread)
   const wellPresetKeys: string[] = [...Object.keys(wellPresets)]
 
   function extractYear(name: string) {
     for (const word of name.split(' ')) {
-      if (word.length !== 4) {
+      const year = parseInt(word, 10)
+      if (isNaN(year)) {
         continue
       }
-      const year = parseInt(word, 10)
-      if (!isNaN(year)) {
-        return year
-      }
+      return year
     }
     return Infinity
   }
@@ -428,7 +394,7 @@ export const useHistoricalStore = defineStore('historical', () => {
     const preset = presets[value]
     size.value = preset.size ?? 12
     down.value = preset.down
-    generator.value = parseInterval(preset.generator)
+    generator.value = parseLine(preset.generator, DEFAULT_NUMBER_OF_COMPONENTS)
     generatorString.value = preset.generator
   }
 
@@ -442,11 +408,11 @@ export const useHistoricalStore = defineStore('historical', () => {
     size.value = 12
     down.value = preset.down
     wellCommaString.value = preset.comma
-    wellComma.value = parseInterval(preset.comma)
-    const fractions = preset.commaFractions.split(',')
+    wellComma.value = parseLine(preset.comma, DEFAULT_NUMBER_OF_COMPONENTS)
+    const fracs = preset.commaFractions.split(',')
     wellCommaFractionStrings.clear()
-    for (let i = 0; i < fractions.length; ++i) {
-      wellCommaFractionStrings.set(i - preset.down, fractions[i])
+    for (let i = 0; i < fracs.length; ++i) {
+      wellCommaFractionStrings.set(i - preset.down, fracs[i])
     }
   }
 
@@ -463,7 +429,6 @@ export const useHistoricalStore = defineStore('historical', () => {
     generatorString,
     size,
     down,
-    up,
     format,
     selectedPreset,
     pureGenerator,
@@ -478,7 +443,6 @@ export const useHistoricalStore = defineStore('historical', () => {
     wellComma,
     wellCommaString,
     wellCommaFractionStrings,
-    wellCommaFractions,
     selectedWellPreset,
     candidates,
     tempering,

@@ -6,10 +6,6 @@ import { computeWhiteIndices } from '../midi'
 describe('White key to white color mapper', () => {
   it('reproduces a chromatic scale in the default (A minor) configuration', () => {
     const map = computeWhiteIndices(69, [
-      'black',
-      'white',
-      'white',
-      'black',
       'white',
       'black',
       'white',
@@ -17,43 +13,53 @@ describe('White key to white color mapper', () => {
       'black',
       'white',
       'black',
-      'white'
+      'white',
+      'white',
+      'black',
+      'white',
+      'black'
     ])
 
     for (let index = 69; index < 69 + 12; index++) {
       const info = midiKeyInfo(index)
-      const actual = info.whiteNumber === undefined ? map[info.sharpOf] + 1 : map[info.whiteNumber]
-      expect(actual).toBe(index)
+      if (info.whiteNumber === undefined) {
+        expect(map[info.sharpOf] + 1).toBe(index)
+      } else {
+        expect(map[info.whiteNumber]).toBe(index)
+      }
     }
   })
 
   it('reproduces a chromatic scale in a C major configuration', () => {
     const map = computeWhiteIndices(60, [
-      'black',
-      'white',
-      'black',
-      'white',
       'white',
       'black',
       'white',
       'black',
       'white',
+      'white',
       'black',
       'white',
+      'black',
+      'white',
+      'black',
       'white'
     ])
 
     for (let index = 60; index < 60 + 12; index++) {
       const info = midiKeyInfo(index)
-      const actual = info.whiteNumber === undefined ? map[info.sharpOf] + 1 : map[info.whiteNumber]
-      expect(actual).toBe(index)
+      if (info.whiteNumber === undefined) {
+        expect(map[info.sharpOf] + 1).toBe(index)
+      } else {
+        expect(map[info.whiteNumber]).toBe(index)
+      }
     }
   })
 
   it('maps smitonics opportunistically', () => {
     const map = computeWhiteIndices(
       69,
-      'black white white black white white black white white black white '.split(' ')
+      'white black white white black white white black white white black'.split(' ')
     )
 
     // The logic of App.midiNoteOn is merely emulated here.
@@ -77,7 +83,7 @@ describe('White key to white color mapper', () => {
   })
 
   it('maps a tetratonic parent scale of a heptatonic scale', () => {
-    const map = computeWhiteIndices(69, 'black white black white black white white'.split(' '))
+    const map = computeWhiteIndices(69, 'white black white black white black white'.split(' '))
 
     // White keys
     expect(map[40]).toBe(69) // A4 -> J

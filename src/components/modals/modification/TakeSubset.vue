@@ -1,37 +1,22 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
+import type { Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
-import { useScaleStore } from '@/stores/scale'
-import { arrayToString } from '@/utils'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
+  scale: Scale
 }>()
 
-const emit = defineEmits(['done', 'cancel'])
+const emit = defineEmits(['update:scale', 'cancel'])
 
-const scale = useScaleStore()
 const modal = useModalStore()
 
-const numDeRoots = computed(() => {
-  if (!modal.selected.size) {
-    return 0
-  }
-  return Math.min(...modal.selected.values())
-})
-
-const displayedEquaveDegree = computed(() => {
-  return scale.scale.size + numDeRoots.value
-})
-
 const mode = computed(() => {
-  if (!modal.selected.size) {
-    return '(nothing selected)'
-  }
   const degrees = [...modal.selected.values()]
   degrees.sort((a, b) => a - b)
-  degrees.push(displayedEquaveDegree.value)
+  degrees.push(props.scale.size)
   const result = []
   for (let i = 1; i < degrees.length; ++i) {
     result.push(degrees[i] - degrees[i - 1])
@@ -40,26 +25,16 @@ const mode = computed(() => {
 })
 
 const degrees = computed(() => {
-  if (!modal.selected.size) {
-    return '(nothing selected)'
-  }
   const degrees = [...modal.selected.values()]
   degrees.sort((a, b) => a - b)
-  return (
-    degrees.map((degree) => degree.toString()).join(', ') + `, (${displayedEquaveDegree.value})`
-  )
+  degrees.shift()
+  return degrees.map((degree) => degree.toString()).join(', ') + `, (${props.scale.size})`
 })
 
-function modify(expand = true) {
+function modify() {
   const subset = [...modal.selected.values()]
   subset.sort((a, b) => a - b)
-  scale.sourceText += `\nsubset(${arrayToString(subset)})`
-  if (expand) {
-    const { visitor, defaults } = scale.getUserScopeVisitor()
-    scale.sourceText = visitor.expand(defaults)
-  }
-  scale.computeScale()
-  emit('done')
+  emit('update:scale', props.scale.subset(subset))
 }
 </script>
 
@@ -74,24 +49,17 @@ function modify(expand = true) {
         <label>Selected intervals</label>
         <div class="control">
           <button
-            v-for="(_, i) of scale.scale.size"
+            v-for="i of props.scale.size - 1"
             :key="i"
             class="degree"
             :class="{ selected: modal.selected.has(i) }"
             @click="modal.toggleSelected(i)"
           >
-            {{ i === 0 ? '(root)' : scale.labels[i - 1] }}
+            {{ scale.getName(i) }}
           </button>
         </div>
         <div class="control"><label>Mode </label>{{ mode }}</div>
         <div class="control"><label>Degrees </label>{{ degrees }}</div>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="modify(true)" :disabled="!modal.selected.size">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="modify(false)" :disabled="!modal.selected.size">Raw</button>
       </div>
     </template>
   </Modal>
@@ -104,8 +72,5 @@ function modify(expand = true) {
 }
 .degree.selected:hover {
   background-color: var(--color-accent-deeper);
-}
-.degree:not(.selected):hover {
-  background-color: var(--color-accent-deepest);
 }
 </style>

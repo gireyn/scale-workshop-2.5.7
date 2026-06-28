@@ -1,48 +1,45 @@
 <script setup lang="ts">
+import { ExtendedMonzo, Interval, Scale } from 'scale-workshop-core'
 import Modal from '@/components/ModalDialog.vue'
-import NumericSlider from '@/components/NumericSlider.vue'
-import { mmod } from 'xen-dev-utils/fraction'
 import { computed } from 'vue'
 import { DEFAULT_NUMBER_OF_COMPONENTS, FIFTH, OCTAVE } from '@/constants'
 import ScaleLineInput from '@/components/ScaleLineInput.vue'
-import { circleDifference } from 'xen-dev-utils/core'
-import { TimeMonzo } from 'sonic-weave/monzo'
-import { mosSizes } from 'moment-of-symmetry/generator-ratio'
-import { spineLabel as spineLabel_, parseInterval, expandCode } from '@/utils'
+import { circleDifference } from 'xen-dev-utils'
+import { mosSizes } from 'moment-of-symmetry'
+import { spineLabel as spineLabel_, type AccidentalStyle } from '@/utils'
 import { useHistoricalStore } from '@/stores/historical'
-import { Interval } from 'sonic-weave/interval'
-import { useScaleStore } from '@/stores/scale'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
+  centsFractionDigits: number
+  accidentalStyle: AccidentalStyle
 }>()
 
 const emit = defineEmits([
   'update:scaleName',
-  'update:source',
+  'update:scale',
+  'update:keyColors',
   'update:baseFrequency',
   'update:baseMidiNote',
   'cancel'
 ])
 
-const scale = useScaleStore()
 const historical = useHistoricalStore()
 
 // The presets default to middle C when there's an 'F' in the scale i.e. down >= 1
 const KEY_COLORS_C = [
-  // 'white', // Implicit unison
-  'black',
-  'white',
-  'black',
-  'white',
   'white',
   'black',
   'white',
   'black',
   'white',
+  'white',
   'black',
   'white',
-  'white' // Unison
+  'black',
+  'white',
+  'black',
+  'white'
 ]
 
 const MIDI_NOTE_C = 60
@@ -52,17 +49,17 @@ const MAX_SIZE = 99
 const MAX_LENGTH = 10
 
 const HARMONIC_SEVENTH = new Interval(
-  TimeMonzo.fromFraction('7/4', DEFAULT_NUMBER_OF_COMPONENTS),
-  'linear'
+  ExtendedMonzo.fromFraction('7/4', DEFAULT_NUMBER_OF_COMPONENTS),
+  'ratio'
 )
 
 const SYNTONIC = new Interval(
-  TimeMonzo.fromFraction('81/80', DEFAULT_NUMBER_OF_COMPONENTS),
-  'linear'
+  ExtendedMonzo.fromFraction('81/80', DEFAULT_NUMBER_OF_COMPONENTS),
+  'ratio'
 )
 
 function spineLabel(up: number) {
-  return spineLabel_(up, scale.accidentalPreference)
+  return spineLabel_(up, props.accidentalStyle)
 }
 
 const mosSizeList = computed(() => {
@@ -80,19 +77,44 @@ const mosSizeList = computed(() => {
   return sizes
 })
 
-const temperedGenerator = computed(() => {
-  if (historical.method === 'simple') {
-    return historical.generator
+const strengthSlider = computed({
+  get: () => historical.temperingStrength,
+  set(newValue: number) {
+    // There's something wrong with how input ranges are handled.
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      historical.temperingStrength = newValue
+    }
   }
-  const cents =
-    historical.pureGenerator.totalCents() + historical.tempering * historical.temperingStrength
-  return parseInterval(cents.toFixed(scale.centsFractionDigits))
+})
+
+const temperedGenerator = computed(() => {
+  const lineOptions = { centsFractionDigits: props.centsFractionDigits }
+  if (historical.method === 'simple') {
+    return historical.generator.mergeOptions(lineOptions)
+  }
+  return historical.pureGenerator
+    .mergeOptions(lineOptions)
+    .add(
+      new Interval(
+        ExtendedMonzo.fromCents(
+          historical.tempering * historical.temperingStrength,
+          DEFAULT_NUMBER_OF_COMPONENTS
+        ),
+        'cents',
+        undefined,
+        lineOptions
+      )
+    )
+    .asType('any')
 })
 
 const enharmonicCents = computed(() => {
   const ws = historical.wellIntervals
   return circleDifference(ws[ws.length - 1].totalCents(), ws[0].totalCents()).toFixed(
-    scale.centsFractionDigits
+    props.centsFractionDigits
   )
 })
 
@@ -104,39 +126,9 @@ function onWellCommaInput(event: Event, i: number) {
   historical.selectedWellPreset = 'none'
 }
 
-function generate(expand = true) {
-  let source: string
-  if (historical.method === 'simple') {
-    source = `rank2(${temperedGenerator.value.toString()}, ${historical.up}, ${historical.down})`
+function generate() {
+  const lineOptions = { centsFractionDigits: props.centsFractionDigits }
 
-    if (historical.selectedPreset in historical.presets) {
-      emit('update:scaleName', historical.presets[historical.selectedPreset].name)
-    } else {
-      emit('update:scaleName', `Rank 2 temperament (${historical.generatorString})`)
-    }
-  } else if (historical.method === 'target') {
-    source = `rank2(${temperedGenerator.value.toString()}, ${historical.up}, ${historical.down}, ${historical.period.toString()})`
-
-    let genString = temperedGenerator.value.toString()
-    if (historical.format === 'cents') {
-      genString = temperedGenerator.value.totalCents().toFixed(scale.centsFractionDigits)
-    }
-    emit('update:scaleName', `Rank 2 temperament (${genString}, ${historical.periodString})`)
-  } else {
-    const commaFractions = historical.wellCommaFractions
-      .slice(0, -1)
-      .map((f) => f.toFraction())
-      .join(', ')
-    source = `wellTemperament([${commaFractions}], ${historical.wellComma.toString()}, ${historical.down})`
-    if (historical.selectedWellPreset in historical.wellPresets) {
-      emit('update:scaleName', historical.wellPresets[historical.selectedWellPreset].name)
-    } else {
-      emit('update:scaleName', 'Custom Well Temperament')
-    }
-  }
-  if (historical.format === 'cents') {
-    source += `\ncents(£, ${scale.centsFractionDigits})`
-  }
   // Check if the scale can be centered around C
   if (
     historical.size === 12 &&
@@ -145,23 +137,66 @@ function generate(expand = true) {
   ) {
     emit('update:baseFrequency', FREQUENCY_C)
     emit('update:baseMidiNote', MIDI_NOTE_C)
-    source += `\n[${KEY_COLORS_C.join(', ')}]`
-    const labels: string[] = []
-    for (let i = 0; i < historical.size; ++i) {
-      labels[mmod(7 * (i - historical.down) - 1, historical.size)] = JSON.stringify(
-        spineLabel(i - historical.down)
-      )
+    emit('update:keyColors', KEY_COLORS_C)
+  }
+
+  if (historical.method === 'simple') {
+    const scale = Scale.fromRank2(
+      temperedGenerator.value,
+      OCTAVE.mergeOptions(lineOptions),
+      historical.size,
+      historical.down
+    )
+
+    if (historical.selectedPreset in historical.presets) {
+      emit('update:scaleName', historical.presets[historical.selectedPreset].name)
+    } else {
+      emit('update:scaleName', `Rank 2 temperament (${historical.generatorString})`)
     }
-    source += `\n[${labels.join(', ')}]`
+
+    if (historical.format === 'cents') {
+      emit('update:scale', scale.asType('cents'))
+    } else {
+      emit('update:scale', scale)
+    }
+  } else if (historical.method === 'target') {
+    const scale = Scale.fromRank2(
+      temperedGenerator.value,
+      historical.period.mergeOptions(lineOptions),
+      historical.size,
+      historical.down
+    )
+
+    let genString = temperedGenerator.value.toString()
+    if (historical.format === 'cents') {
+      emit('update:scale', scale.asType('cents'))
+      genString = temperedGenerator.value.totalCents().toFixed(props.centsFractionDigits)
+    } else {
+      emit('update:scale', scale)
+    }
+    emit('update:scaleName', `Rank 2 temperament (${genString}, ${historical.periodString})`)
+  } else {
+    const scale = new Scale(
+      historical.wellIntervals.slice(0, historical.size),
+      OCTAVE,
+      440
+    ).mergeOptions(lineOptions)
+    scale.sortInPlace()
+    if (historical.format === 'cents') {
+      emit('update:scale', scale.asType('cents'))
+    } else {
+      emit('update:scale', scale)
+    }
+    if (historical.selectedWellPreset in historical.wellPresets) {
+      emit('update:scaleName', historical.wellPresets[historical.selectedWellPreset].name)
+    } else {
+      emit('update:scaleName', 'Custom Well Temperament')
+    }
   }
-  if (expand) {
-    source = expandCode(source)
-  }
-  emit('update:source', source)
 }
 </script>
 <template>
-  <Modal :show="show" @confirm="generate" @cancel="$emit('cancel')">
+  <Modal :show="show" extraStyle="width: 25rem" @confirm="generate" @cancel="$emit('cancel')">
     <template #header>
       <h2>Generate historical temperament</h2>
     </template>
@@ -178,7 +213,7 @@ function generate(expand = true) {
                 v-model="historical.method"
                 @input="historical.selectPreset(historical.selectedPreset)"
               />
-              <label for="method-simple">Simple</label>
+              <label for="method-simple"> Simple </label>
             </span>
 
             <span>
@@ -189,7 +224,7 @@ function generate(expand = true) {
                 v-model="historical.method"
                 @input="historical.down = 1"
               />
-              <label for="method-target">Target</label>
+              <label for="method-target"> Target </label>
             </span>
 
             <span>
@@ -200,7 +235,7 @@ function generate(expand = true) {
                 v-model="historical.method"
                 @input="historical.selectWellPreset(historical.selectedWellPreset)"
               />
-              <label for="method-well">Well Temperament</label>
+              <label for="method-well"> Well Temperament </label>
             </span>
           </div>
         </div>
@@ -235,11 +270,11 @@ function generate(expand = true) {
             <label>Format</label>
             <span>
               <input id="format-cents" type="radio" value="cents" v-model="historical.format" />
-              <label for="format-cents">cents</label>
+              <label for="format-cents"> cents</label>
             </span>
             <span>
               <input id="format-default" type="radio" value="default" v-model="historical.format" />
-              <label for="format-default">default</label>
+              <label for="format-default"> default</label>
             </span>
           </div>
           <div class="control">
@@ -295,19 +330,19 @@ function generate(expand = true) {
                 :key="candidate.exponent"
                 :value="candidate.exponent"
               >
-                {{ candidate.exponent }} /
-                {{ candidate.tempering.toFixed(scale.centsFractionDigits) }} ¢
+                {{ candidate.exponent }} / {{ candidate.tempering.toFixed(centsFractionDigits) }} ¢
               </option>
             </select>
           </div>
           <label for="tempering-strength">Tempering strength</label>
-          <NumericSlider
+          <input
             id="tempering-strength"
             class="control"
+            type="range"
             min="0"
             max="1"
             step="any"
-            v-model="historical.temperingStrength"
+            v-model="strengthSlider"
           />
           <button class="control" @click="historical.equalizeBeating">Equalize beating</button>
           <div class="control">
@@ -328,11 +363,11 @@ function generate(expand = true) {
             <label>Format</label>
             <span>
               <input id="format-cents" type="radio" value="cents" v-model="historical.format" />
-              <label for="format-cents">cents</label>
+              <label for="format-cents"> cents</label>
             </span>
             <span>
               <input id="format-default" type="radio" value="default" v-model="historical.format" />
-              <label for="format-default">default</label>
+              <label for="format-default"> default</label>
             </span>
           </div>
         </div>
@@ -375,11 +410,11 @@ function generate(expand = true) {
             <label>Format</label>
             <span>
               <input id="format-cents" type="radio" value="cents" v-model="historical.format" />
-              <label for="format-cents">cents</label>
+              <label for="format-cents"> cents</label>
             </span>
             <span>
               <input id="format-default" type="radio" value="default" v-model="historical.format" />
-              <label for="format-default">default</label>
+              <label for="format-default"> default</label>
             </span>
           </div>
           <div class="control">
@@ -426,13 +461,6 @@ function generate(expand = true) {
           <a href="#" @click="historical.size = mosSize">{{ mosSize }}</a
           ><template v-if="i < mosSizeList.length - 1">, </template>
         </span>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="() => generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="() => generate(false)">Raw</button>
       </div>
     </template>
   </Modal>

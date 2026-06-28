@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { OCTAVE } from '@/constants'
+import { DEFAULT_NUMBER_OF_COMPONENTS, OCTAVE } from '@/constants'
 import { ref, watch } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
 import ScaleLineInput from '@/components/ScaleLineInput.vue'
-import { MAX_EQUAL_TEMPERAMENT_SIZE, useModalStore } from '@/stores/modal'
+import { ExtendedMonzo, Interval, Scale } from 'scale-workshop-core'
+import { useModalStore } from '@/stores/modal'
 import { setAndReportValidity } from '@/utils'
-import { useScaleStore } from '@/stores/scale'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
+  centsFractionDigits: number
+  decimalFractionDigits: number
 }>()
 
-const emit = defineEmits(['update:source', 'update:scaleName', 'cancel'])
+const emit = defineEmits(['update:scale', 'update:scaleName', 'cancel'])
 
-const scale = useScaleStore()
 const modal = useModalStore()
 
 const divisionsElement = ref<HTMLInputElement | null>(null)
@@ -29,38 +30,33 @@ watch(
   }
 )
 
-function generate(expand = true) {
+function generate() {
+  const lineOptions = {
+    centsFractionDigits: props.centsFractionDigits,
+    decimalFractionDigits: props.decimalFractionDigits
+  }
   if (modal.singleStepOnly) {
-    const stepCents = modal.equave.value.totalCents() / modal.divisions
-    const line = stepCents.toFixed(scale.centsFractionDigits)
-    emit('update:scaleName', `${line} cET`)
-    emit('update:source', line)
+    const stepCents = modal.equave.totalCents() / modal.divisions
+    const scale = Scale.fromIntervalArray([
+      new Interval(
+        ExtendedMonzo.fromCents(stepCents, DEFAULT_NUMBER_OF_COMPONENTS),
+        'cents',
+        undefined,
+        lineOptions
+      )
+    ])
+    emit('update:scaleName', `${scale.equave.name} cET`)
+    emit('update:scale', scale)
   } else {
-    emit('update:scaleName', `${modal.divisions} equal divisions of ${modal.equaveString}`)
-    let source: string
-    if (modal.equave.equals(OCTAVE)) {
-      const edo = modal.divisions
-      if (expand || !modal.simpleEd) {
-        source = modal.degrees.map((steps) => `${steps}\\${edo}`).join('\n')
-      } else {
-        source = `tet(${edo})`
-      }
-    } else {
-      const ed = modal.divisions
-      if (expand || !modal.simpleEd) {
-        try {
-          // Prefer restricted 7\13<3> form
-          const ji = modal.equave.toFraction().toFraction()
-          source = modal.degrees.map((steps) => `${steps}\\${ed}<${ji}>`).join('\n')
-        } catch {
-          // Fall back to generic 7\13 ed 1912.3456 form
-          source = modal.degrees.map((steps) => `${steps}\\${ed} ed ${modal.equave}`).join('\n')
-        }
-      } else {
-        source = `tet(${ed}, ${modal.equave})`
-      }
-    }
-    emit('update:source', source)
+    // Implicit use of safeScaleSize. Note that small subsets of huge EDOs cause no issues.
+    const scale = Scale.fromEqualTemperamentSubset(
+      modal.degrees,
+      modal.equave.mergeOptions(lineOptions)
+    )
+    // Obtain effective divisions from the scale just generated.
+    const effectiveDivisions = scale.getInterval(0).options.preferredEtDenominator
+    emit('update:scaleName', `${effectiveDivisions} equal divisions of ${modal.equave.toString()}`)
+    emit('update:scale', scale)
   }
 }
 </script>
@@ -111,19 +107,12 @@ function generate(expand = true) {
           />
         </div>
       </div>
-      <div class="warning">
-        <p v-if="modal.singleStepOnly">Warning: Scale will be converted to a single step.</p>
-        <p v-else-if="modal.divisions !== modal.safeScaleSize">
-          Warning: Scale will be capped at {{ MAX_EQUAL_TEMPERAMENT_SIZE }} notes.
-        </p>
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="() => generate(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="() => generate(false)" :disabled="!modal.simpleEd">Raw</button>
-      </div>
     </template>
   </Modal>
 </template>
+
+<style scoped>
+label.disabled {
+  color: var(--color-text-mute);
+}
+</style>

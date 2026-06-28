@@ -1,140 +1,190 @@
 <script setup lang="ts">
-/**
- * Synth configuration view for audio engine parameters and waveform selection.
- */
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import TimeDomainVisualizer from '@/components/TimeDomainVisualizer.vue'
 import Modal from '@/components/ModalDialog.vue'
-import NumericSlider from '@/components/NumericSlider.vue'
-import { APERIODIC_WAVEFORMS, WAVEFORMS } from '@/synth'
+import { WAVEFORMS } from '@/synth'
 import { useAudioStore } from '@/stores/audio'
 import { useStateStore } from '@/stores/state'
-import { useScaleStore } from '@/stores/scale'
 
 const emit = defineEmits(['panic'])
 
 const state = useStateStore()
-const scale = useScaleStore()
 
 const audio = useAudioStore()
 
-type RemappableKey =
-  | 'deactivationCode'
-  | 'equaveDownCode'
-  | 'equaveUpCode'
-  | 'degreeDownCode'
-  | 'degreeUpCode'
+const remappedKey = ref('')
 
-const remappedKey = ref<RemappableKey | ''>('')
-
-type TimeDomainVisualizerHandle = {
-  initialize: (analyser: AnalyserNode) => void
-}
-
-const timeDomainVisualizer = ref<TimeDomainVisualizerHandle | null>(null)
+const timeDomainVisualizer = ref<any>(null)
 
 const analyser = ref<AnalyserNode | null>(null)
 
-const strokeStyle = computed(() => {
-  const root = document.documentElement
-  if (state.colorScheme) {
-    return getComputedStyle(root).getPropertyValue('--color-text').trim()
+// These really should be direct v-models, but there's
+// something wrong with how input ranges are handled.
+const audioDelay = computed({
+  get: () => audio.audioDelay,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.audioDelay = newValue
+    }
   }
-  return getComputedStyle(root).getPropertyValue('--color-text').trim()
 })
 
-function nudgeIsomorphicVertical(delta: number) {
-  if (scale.isomorphicVertical.length !== 1) {
-    return
+const mainVolume = computed({
+  get: () => audio.mainVolume,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.mainVolume = newValue
+    }
   }
-  scale.isomorphicVertical = [scale.isomorphicVertical[0] + delta]
-}
+})
 
-function nudgeIsomorphicHorizontal(delta: number) {
-  if (scale.isomorphicHorizontal.length !== 1) {
-    return
+const attackTime = computed({
+  get: () => audio.attackTime,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.attackTime = newValue
+    }
   }
-  scale.isomorphicHorizontal = [scale.isomorphicHorizontal[0] + delta]
+})
+
+const decayTime = computed({
+  get: () => audio.decayTime,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.decayTime = newValue
+    }
+  }
+})
+
+const sustainLevel = computed({
+  get: () => audio.sustainLevel,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.sustainLevel = newValue
+    }
+  }
+})
+
+const releaseTime = computed({
+  get: () => audio.releaseTime,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.releaseTime = newValue
+    }
+  }
+})
+
+const pingPongDelayTime = computed({
+  get: () => audio.pingPongDelayTime,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.pingPongDelayTime = newValue
+    }
+  }
+})
+
+const pingPongFeedback = computed({
+  get: () => audio.pingPongFeedback,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.pingPongFeedback = newValue
+    }
+  }
+})
+
+const pingPongSeparation = computed({
+  get: () => audio.pingPongSeparation,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.pingPongSeparation = newValue
+    }
+  }
+})
+
+const pingPongGain = computed({
+  get: () => audio.pingPongGain,
+  set(newValue: number) {
+    if (typeof newValue !== 'number') {
+      newValue = parseFloat(newValue)
+    }
+    if (!isNaN(newValue)) {
+      audio.pingPongGain = newValue
+    }
+  }
+})
+
+const strokeStyle = computed(() => {
+  // Add dependency.
+  state.colorScheme
+  // Fetch from document.
+  return getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim()
+})
+
+function presetOrgan() {
+  attackTime.value = 0.01
+  decayTime.value = 0.15
+  sustainLevel.value = 0.8
+  releaseTime.value = 0.01
 }
 
-function envPresetOrgan() {
-  audio.attackTime = 0.01
-  audio.decayTime = 0.15
-  audio.sustainLevel = 0.8
-  audio.releaseTime = 0.01
+function presetPad() {
+  attackTime.value = 0.5
+  decayTime.value = 1.5
+  sustainLevel.value = 0.5
+  releaseTime.value = 0.7
 }
 
-function envPresetPad() {
-  audio.attackTime = 0.5
-  audio.decayTime = 1.5
-  audio.sustainLevel = 0.5
-  audio.releaseTime = 0.7
+function presetShort() {
+  attackTime.value = 0.002
+  decayTime.value = 0.125
+  sustainLevel.value = 0.0
+  releaseTime.value = 0.1
 }
 
-function envPresetShort() {
-  audio.attackTime = 0.01
-  audio.decayTime = 0.125
-  audio.sustainLevel = 0.0
-  audio.releaseTime = 0.1
+function presetMedium() {
+  attackTime.value = 0.003
+  decayTime.value = 1.5
+  sustainLevel.value = 0.0
+  releaseTime.value = 0.3
 }
 
-function envPresetMedium() {
-  audio.attackTime = 0.01
-  audio.decayTime = 1.5
-  audio.sustainLevel = 0.0
-  audio.releaseTime = 0.3
-}
-
-function envPresetLong() {
-  audio.attackTime = 0.01
-  audio.decayTime = 4
-  audio.sustainLevel = 0.0
-  audio.releaseTime = 0.95
-}
-
-function dlyPresetBasicMono() {
-  audio.pingPongDelayTime = 0.4
-  audio.pingPongFeedback = 0.45
-  audio.pingPongSeparation = 0.0
-  audio.pingPongGain = 0.65
-}
-
-function dlyPresetBasicStereo() {
-  audio.pingPongDelayTime = 0.4
-  audio.pingPongFeedback = 0.45
-  audio.pingPongSeparation = 0.8
-  audio.pingPongGain = 0.65
-}
-
-function dlyPresetIntense() {
-  audio.pingPongDelayTime = 0.6
-  audio.pingPongFeedback = 0.85
-  audio.pingPongSeparation = 0.7
-  audio.pingPongGain = 0.7
-}
-
-function dlyPresetElastic() {
-  audio.pingPongDelayTime = 0.085
-  audio.pingPongFeedback = 0.5
-  audio.pingPongSeparation = 0.4
-  audio.pingPongGain = 0.75
-}
-
-function dlyPresetAmbient() {
-  audio.pingPongDelayTime = 0.019
-  audio.pingPongFeedback = 0.625
-  audio.pingPongSeparation = 0.8
-  audio.pingPongGain = 0.6
-}
-
-function dlyPresetOff() {
-  audio.pingPongGain = 0.0
+function presetLong() {
+  attackTime.value = 0.005
+  decayTime.value = 4
+  sustainLevel.value = 0.0
+  releaseTime.value = 0.8
 }
 
 function assignCode(event: KeyboardEvent) {
-  const key = remappedKey.value
-  if (key !== '' && event.code.length) {
-    state[key] = event.code
+  if (remappedKey.value.length && event.code.length) {
+    ;(state as any)[remappedKey.value] = event.code
     remappedKey.value = ''
   }
 }
@@ -183,118 +233,65 @@ onUnmounted(() => {
         </div>
         <div class="control-group">
           <label for="volume">Main volume</label>
-          <NumericSlider
-            id="volume"
-            class="control"
-            min="0"
-            max="0.4"
-            step="any"
-            v-model="audio.mainVolume"
-          />
-          <button
-            @click="emit('panic')"
-            class="compact-action-button"
-            title="Stop all sound at once"
-          >
+          <input class="control" type="range" min="0" max="0.4" step="any" v-model="mainVolume" />
+          <button @click="emit('panic')" style="max-width: 12rem" title="Stop all sound at once">
             Panic
           </button>
-          <div class="control radio-group">
-            <label>Synth type</label>
-            <span>
-              <input
-                type="radio"
-                id="type-oscillator"
-                value="oscillator"
-                v-model="audio.synthType"
-              />
-              <label for="type-oscillator">Oscillator</label>
-            </span>
-
-            <span>
-              <input type="radio" id="type-unison" value="unison" v-model="audio.synthType" />
-              <label for="type-unison">Unison</label>
-            </span>
-
-            <span>
-              <input type="radio" id="type-aperiodic" value="aperiodic" v-model="audio.synthType" />
-              <label for="type-aperiodic">Aperiodic</label>
-            </span>
-          </div>
-          <template v-if="audio.synthType === 'unison'">
-            <div class="control">
-              <label for="stack-size">Unison stack size</label>
-              <input id="stack-size" min="2" max="9" type="number" v-model="audio.stackSize" />
-            </div>
-            <label for="unison-spread">Unison spread</label>
-            <NumericSlider
-              id="unison-spread"
-              class="control"
-              min="0.01"
-              max="100"
-              step="any"
-              v-model="audio.spread"
-            />
-          </template>
           <div class="control">
             <label for="waveform">Waveform</label>
-            <select
-              v-if="audio.synthType === 'aperiodic'"
-              class="control"
-              v-model="audio.aperiodicWaveform"
-            >
-              <option v-for="waveform of APERIODIC_WAVEFORMS" :value="waveform" :key="waveform">
-                {{ waveform }}
-              </option>
-            </select>
-            <select v-else id="waveform" class="control" v-model="audio.waveform">
+            <select id="waveform" class="control" v-model="audio.waveform">
               <option v-for="waveform of WAVEFORMS" :value="waveform" :key="waveform">
                 {{ waveform }}
               </option>
             </select>
           </div>
           <label for="attack">Attack time</label>
-          <NumericSlider
+          <input
             id="attack"
             class="control"
+            type="range"
             min="0.01"
             max="1.0"
             step="any"
-            v-model="audio.attackTime"
+            v-model="attackTime"
           />
           <label for="decay">Decay time</label>
-          <NumericSlider
+          <input
             id="decay"
             class="control"
+            type="range"
             min="0.01"
             max="4.0"
             step="any"
-            v-model="audio.decayTime"
+            v-model="decayTime"
           />
           <label for="sustain">Sustain level</label>
-          <NumericSlider
+          <input
             id="sustain"
             class="control"
+            type="range"
             min="0.0"
             max="1.0"
             step="any"
-            v-model="audio.sustainLevel"
+            v-model="sustainLevel"
           />
           <label for="release">Release time</label>
-          <NumericSlider
+          <input
             id="release"
             class="control"
+            type="range"
             min="0.01"
             max="1.0"
             step="any"
-            v-model="audio.releaseTime"
+            v-model="releaseTime"
           />
           <div class="btn-group">
             <label>Presets</label>
-            <button @click="envPresetOrgan">Organ</button>
-            <button @click="envPresetPad">Pad</button>
-            <button @click="envPresetShort">Percussive (Short)</button>
-            <button @click="envPresetMedium">Percussive (Medium)</button>
-            <button @click="envPresetLong">Percussive (Long)</button>
+            <button @click="presetOrgan">Organ</button>
+            <button @click="presetPad">Pad</button>
+            <button @click="presetShort">Percussive (Short)</button>
+            <button @click="presetMedium">Percussive (Medium)</button>
+            <button @click="presetLong">Percussive (Long)</button>
           </div>
           <div class="control">
             <label for="polyphony">Max polyphony</label>
@@ -303,64 +300,58 @@ onUnmounted(() => {
           <hr />
           <label>Delay Effect</label>
           <label for="ping-pong-delay-time"
-            >Delay time ({{ Math.floor(audio.pingPongDelayTime * 1000) }} ms)</label
+            >Delay time ({{ Math.floor(pingPongDelayTime * 1000) }} ms)</label
           >
-          <NumericSlider
+          <input
             id="ping-pong-delay-time"
             class="control"
+            type="range"
             min="0.01"
             max="5.0"
             step="any"
-            v-model="audio.pingPongDelayTime"
+            v-model="pingPongDelayTime"
           />
           <label for="ping-pong-feedback">Feedback gain</label>
-          <NumericSlider
+          <input
             id="ping-pong-feedback"
             class="control"
+            type="range"
             min="0.0"
             max="1.0"
             step="any"
-            v-model="audio.pingPongFeedback"
+            v-model="pingPongFeedback"
           />
           <label for="ping-pong-separation">Stereo separation</label>
-          <NumericSlider
+          <input
             id="ping-pong-separation"
             class="control"
+            type="range"
             min="0.0"
             max="1.0"
             step="any"
-            v-model="audio.pingPongSeparation"
+            v-model="pingPongSeparation"
           />
           <label for="ping-pong-gain">Mix</label>
-          <NumericSlider
+          <input
             id="ping-pong-gain"
             class="control"
+            type="range"
             min="0.0"
             max="1.0"
             step="any"
-            v-model="audio.pingPongGain"
+            v-model="pingPongGain"
           />
-          <button @click="dlyPresetOff" class="compact-action-button" title="Set delay mix to zero">
-            Delay Off
-          </button>
-          <div class="btn-group">
-            <label>Presets</label>
-            <button @click="dlyPresetBasicMono">Basic (Mono)</button>
-            <button @click="dlyPresetBasicStereo">Basic (Stereo)</button>
-            <button @click="dlyPresetIntense">Intense</button>
-            <button @click="dlyPresetElastic">Elastic</button>
-            <button @click="dlyPresetAmbient">Ambient</button>
-          </div>
           <hr />
           <label>Advanced</label>
           <label for="audio-delay">Audio delay (reduce pops)</label>
-          <NumericSlider
+          <input
             id="audio-delay"
             class="control"
+            type="range"
             min="0.0"
             max="0.1"
             step="any"
-            v-model="audio.audioDelay"
+            v-model="audioDelay"
           />
         </div>
       </div>
@@ -373,174 +364,32 @@ onUnmounted(() => {
                 type="radio"
                 id="mode-isomorphic"
                 value="isomorphic"
-                v-model="scale.keyboardMode"
+                v-model="state.keyboardMode"
               />
-              <label for="mode-isomorphic">Isomorphic</label>
+              <label for="mode-isomorphic"> Isomorphic </label>
             </span>
             <span>
-              <input type="radio" id="mode-piano" value="piano" v-model="scale.keyboardMode" />
-              <label for="mode-piano">Piano-style layers</label>
+              <input type="radio" id="mode-piano" value="piano" v-model="state.keyboardMode" />
+              <label for="mode-piano"> Piano-style layers </label>
             </span>
           </div>
-          <template v-if="scale.keyboardMode === 'piano'">
+          <template v-if="state.keyboardMode === 'piano'">
             <div class="control radio-group">
               <span>
-                <input type="radio" id="mode-asdf" value="Asdf" v-model="scale.pianoMode" />
-                <label for="mode-asdf">White on ASDF & black on QWERTY</label>
+                <input type="radio" id="mode-asdf" value="Asdf" v-model="state.pianoMode" />
+                <label for="mode-asdf"> ASDF & QWERTY </label>
               </span>
               <span>
-                <input type="radio" id="mode-qwe-zxc" value="QweZxc" v-model="scale.pianoMode" />
-                <label for="mode-qwe-zxc"
-                  >QWERTY & digits + ZXCV & ASDF separated by an equave</label
-                >
+                <input type="radio" id="mode-qwezxc1" value="QweZxc1" v-model="state.pianoMode" />
+                <label for="mode-qwezxc1"> ZXCV & ASDF + QWERTY & 1234 </label>
               </span>
               <span>
-                <input type="radio" id="mode-zxc" value="Zxc" v-model="scale.pianoMode" />
-                <label for="mode-zxc">ZXCV with split accidentals above</label>
-              </span>
-            </div>
-          </template>
-          <div class="control checkbox-container">
-            <input
-              id="keyboard-slide-behavior"
-              type="checkbox"
-              v-model="state.slideVirtualKeyboard"
-            />
-            <label for="keyboard-slide-behavior">Slide across notes while dragging</label>
-          </div>
-          <template v-if="!state.slideVirtualKeyboard">
-            <label for="bend-drag-pixels">Bend drag distance (pixels)</label>
-            <NumericSlider
-              id="bend-drag-pixels"
-              class="control"
-              min="24"
-              max="400"
-              step="1"
-              v-model="state.bendDragPixels"
-            />
-            <div class="control radio-group">
-              <label>Bend drag axis</label>
-              <span>
-                <input type="radio" id="bend-axis-y" value="y" v-model="state.bendDragAxis" />
-                <label for="bend-axis-y">Vertical (Y)</label>
-              </span>
-              <span>
-                <input type="radio" id="bend-axis-x" value="x" v-model="state.bendDragAxis" />
-                <label for="bend-axis-x">Horizontal (X)</label>
+                <input type="radio" id="mode-qwezxc0" value="QweZxc0" v-model="state.pianoMode" />
+                <label for="mode-qwezxc0"> ZXCV etc. (shifted left) </label>
               </span>
             </div>
           </template>
         </div>
-        <template v-if="scale.keyboardMode === 'isomorphic'">
-          <h2>Keyboard notes</h2>
-          <div class="control-group keyboard-notes-options">
-            <div class="control checkbox-container">
-              <input id="keyboard-show-label" type="checkbox" v-model="state.showKeyboardLabel" />
-              <label for="keyboard-show-label">Display label</label>
-            </div>
-            <div class="control checkbox-container">
-              <input id="keyboard-show-cents" type="checkbox" v-model="state.showKeyboardCents" />
-              <label for="keyboard-show-cents">Display cents</label>
-            </div>
-            <div class="control checkbox-container">
-              <input id="keyboard-show-ratio" type="checkbox" v-model="state.showKeyboardRatio" />
-              <label for="keyboard-show-ratio">Display ratio</label>
-            </div>
-            <div class="control checkbox-container">
-              <input
-                id="keyboard-show-frequency"
-                type="checkbox"
-                v-model="state.showKeyboardFrequency"
-              />
-              <label for="keyboard-show-frequency">Display frequency</label>
-            </div>
-          </div>
-        </template>
-        <template v-if="scale.keyboardMode === 'isomorphic'">
-          <h2>Isomorphic key mapping</h2>
-          <p>
-            Distance between adjacent keys on the horizontal/vertical axes, in scale degrees.
-            Affects virtual keyboard (and also typing keyboard if in isomorphic mode). Use
-            space-separated integer lists for quasi-isomorphic repeating patterns.
-          </p>
-          <div class="control-group twin-controls">
-            <div class="control">
-              <label for="vertical">Vertical</label>
-              <div class="spinner-input">
-                <input type="text" id="vertical" v-model="scale.isomorphicVerticalText" />
-                <div class="spinner-buttons">
-                  <button
-                    type="button"
-                    aria-label="Increase vertical"
-                    :disabled="scale.isomorphicVertical.length !== 1"
-                    @click="nudgeIsomorphicVertical(1)"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Decrease vertical"
-                    :disabled="scale.isomorphicVertical.length !== 1"
-                    @click="nudgeIsomorphicVertical(-1)"
-                  >
-                    ▼
-                  </button>
-                </div>
-              </div>
-            </div>
-            <div class="control">
-              <label for="horizontal">Horizontal</label>
-              <div class="spinner-input">
-                <input type="text" id="horizontal" v-model="scale.isomorphicHorizontalText" />
-                <div class="spinner-buttons">
-                  <button
-                    type="button"
-                    aria-label="Increase horizontal"
-                    :disabled="scale.isomorphicHorizontal.length !== 1"
-                    @click="nudgeIsomorphicHorizontal(1)"
-                  >
-                    ▲
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Decrease horizontal"
-                    :disabled="scale.isomorphicHorizontal.length !== 1"
-                    @click="nudgeIsomorphicHorizontal(-1)"
-                  >
-                    ▼
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </template>
-        <template v-else>
-          <h2>Accidental colors</h2>
-          <p>These color(s) in your scale will be used to assemble the piano layout.</p>
-          <div v-if="scale.pianoMode === 'Zxc'" class="control-group">
-            <div class="control">
-              <label for="high-accidental-color">high</label>
-              <input type="text" id="high-accidental-color" v-model="scale.highAccidentalColor" />
-            </div>
-            <div class="control">
-              <label for="middle-accidental-color">Middle</label>
-              <input
-                type="text"
-                id="middle-accidental-color"
-                v-model="scale.middleAccidentalColor"
-              />
-            </div>
-            <div class="control">
-              <label for="low-accidental-color">Low</label>
-              <input type="text" id="low-accidental-color" v-model="scale.lowAccidentalColor" />
-            </div>
-          </div>
-          <div v-else class="control-group">
-            <div class="control">
-              <input type="text" id="accidental-color" v-model="scale.accidentalColor" />
-            </div>
-          </div>
-        </template>
         <h2>Keyboard equave shift</h2>
         <div class="control-group">
           <p>
@@ -548,7 +397,7 @@ onUnmounted(() => {
             <code>/</code> and <code>*</code>)
           </p>
           <div class="control">
-            <input type="number" v-model="scale.equaveShift" />
+            <input type="number" v-model="state.equaveShift" />
           </div>
         </div>
         <h2>Keyboard degree shift</h2>
@@ -558,9 +407,54 @@ onUnmounted(() => {
             <code>-</code> and <code>+</code>).
           </p>
           <div class="control">
-            <input type="number" v-model="scale.degreeShift" />
+            <input type="number" v-model="state.degreeShift" />
           </div>
         </div>
+        <template v-if="state.keyboardMode === 'isomorphic'">
+          <h2>Keyboard notes</h2>
+          <div class="control-group" style="flex-direction: row; flex-wrap: wrap">
+            <div class="control checkbox-container">
+              <input id="keyboard-show-label" type="checkbox" v-model="state.showKeyboardLabel" />
+              <label for="keyboard-show-label">Display label</label>
+            </div>
+            <div class="control checkbox-container">
+              <input id="keyboard-show-cents" type="checkbox" v-model="state.showKeyboardCents" />
+              <label for="keyboard-show-cents"> Display cents</label>
+            </div>
+            <div class="control checkbox-container">
+              <input id="keyboard-show-ratio" type="checkbox" v-model="state.showKeyboardRatio" />
+              <label for="keyboard-show-ratio"> Display ratio</label>
+            </div>
+            <div class="control checkbox-container">
+              <input
+                id="keyboard-show-frequency"
+                type="checkbox"
+                v-model="state.showKeyboardFrequency"
+              />
+              <label for="keyboard-show-frequency"> Display frequency</label>
+            </div>
+          </div>
+        </template>
+        <template v-if="state.keyboardMode === 'isomorphic'">
+          <h2>Isomorphic key mapping</h2>
+          <p>
+            Distance between adjacent keys on the horizontal/vertical axes, in scale degrees.
+            Affects virtual keyboard (and also typing keyboard if in isomorphic mode).
+          </p>
+          <div
+            class="control-group"
+            style="flex-direction: row; align-items: stretch; flex-wrap: nowrap"
+          >
+            <div class="control" style="width: 50%">
+              <label for="vertical">Vertical</label>
+              <input type="number" id="vertical" v-model="state.isomorphicVertical" />
+            </div>
+            <div class="control" style="width: 50%">
+              <label for="horizontal">Horizontal</label>
+              <input type="number" id="horizontal" v-model="state.isomorphicHorizontal" />
+            </div>
+          </div>
+        </template>
         <h2>Keyboard shortcuts</h2>
         <div class="control-group">
           <p><code>Shift</code> sustain currently held keys after release</p>
@@ -639,36 +533,5 @@ div.keyboard-controls {
   height: auto;
   border: 1px solid var(--color-border);
   border-radius: 5px;
-}
-
-.compact-action-button {
-  max-width: 12rem;
-}
-
-.keyboard-notes-options {
-  flex-direction: row;
-  flex-wrap: wrap;
-}
-
-.spinner-input {
-  display: flex;
-  width: 100%;
-}
-
-.spinner-input > input {
-  flex: 1;
-  min-width: 0;
-}
-
-.spinner-buttons {
-  display: flex;
-  flex-direction: column;
-  margin-left: 0.25rem;
-}
-
-.spinner-buttons > button {
-  line-height: 1;
-  min-width: 1.75rem;
-  padding: 0.15rem 0.25rem;
 }
 </style>

@@ -1,22 +1,121 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { LEFT_MOUSE_BTN } from '@/constants'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import Values from 'values.js'
 
+type NoteOff = () => void
+type NoteOnCallback = () => NoteOff
+
 const props = defineProps<{
-  keyId: string
   color: string
-  active: boolean
-  held: boolean
+  isMousePressed: boolean
+  noteOn: NoteOnCallback
 }>()
 
-const light = computed(() => new Values(props.color).getBrightness() > 50)
+const active = ref(false)
+
+const light = computed(() => {
+  const trimmed = props.color.trim()
+  try {
+    return new Values(trimmed).getBrightness() > 50
+  } catch {
+    return true
+  }
+})
+
+const emit = defineEmits(['press', 'unpress'])
+
+let noteOff: NoteOff | null = null
+
+function start() {
+  active.value = true
+  if (noteOff !== null) {
+    noteOff()
+  }
+  noteOff = props.noteOn()
+}
+
+function end() {
+  active.value = false
+  if (noteOff !== null) {
+    noteOff()
+    noteOff = null
+  }
+}
+
+function onTouchStart(event: TouchEvent) {
+  event.preventDefault()
+  start()
+}
+
+function onTouchEnd(event: TouchEvent) {
+  event.preventDefault()
+  end()
+}
+
+function onMouseDown(event: MouseEvent) {
+  if (event.button !== LEFT_MOUSE_BTN) {
+    return
+  }
+  event.preventDefault()
+  emit('press')
+  start()
+}
+
+function onMouseUp(event: MouseEvent) {
+  if (event.button !== LEFT_MOUSE_BTN) {
+    return
+  }
+  event.preventDefault()
+}
+
+function onWindowMouseUp(event: MouseEvent) {
+  if (event.button !== LEFT_MOUSE_BTN) {
+    return
+  }
+  emit('unpress')
+  end()
+}
+
+function onMouseEnter(event: MouseEvent) {
+  if (!props.isMousePressed) {
+    return
+  }
+  event.preventDefault()
+  start()
+}
+
+function onMouseLeave(event: MouseEvent) {
+  if (!props.isMousePressed) {
+    return
+  }
+  event.preventDefault()
+  end()
+}
+
+onMounted(() => {
+  window.addEventListener('mouseup', onWindowMouseUp)
+})
+
+onUnmounted(() => {
+  if (noteOff !== null) {
+    noteOff()
+  }
+  window.removeEventListener('mouseup', onWindowMouseUp)
+})
 </script>
 
 <template>
   <td
-    :data-key-id="keyId"
     :style="'background-color:' + color"
-    :class="{ active, held, light, dark: !light }"
+    :class="{ active, light, dark: !light }"
+    @touchstart="onTouchStart"
+    @touchend="onTouchEnd"
+    @touchcancel="onTouchEnd"
+    @mousedown="onMouseDown"
+    @mouseup="onMouseUp"
+    @mouseenter="onMouseEnter"
+    @mouseleave="onMouseLeave"
   >
     <slot></slot>
   </td>
@@ -36,14 +135,14 @@ td p {
   pointer-events: none;
   word-break: break-word;
   line-height: 1.1em;
-  color: var(--color-key-label);
+  color: #888;
 }
 
 td:hover {
   background: linear-gradient(
     0deg,
     rgba(255, 255, 255, 0) 0%,
-    var(--color-key-hover) 50%,
+    rgba(255, 0, 0, 0.5) 50%,
     rgba(255, 255, 255, 0) 100%
   );
 }
@@ -51,7 +150,7 @@ td.held {
   background: linear-gradient(
     0deg,
     rgba(0, 0, 0, 0) 0%,
-    var(--color-key-held) 50%,
+    rgba(200, 230, 0, 0.5) 50%,
     rgba(0, 0, 0, 0) 100%
   );
 }
@@ -59,7 +158,7 @@ td.active {
   background: linear-gradient(
     0deg,
     rgba(0, 0, 0, 0) 0%,
-    var(--color-key-active) 50%,
+    rgba(0, 255, 0, 0.5) 50%,
     rgba(0, 0, 0, 0) 100%
   );
 }

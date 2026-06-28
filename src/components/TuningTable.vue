@@ -1,92 +1,62 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
 import TuningTableRow from '@/components/TuningTableRow.vue'
-import { mmod } from 'xen-dev-utils/fraction'
+import { mmod } from 'xen-dev-utils'
+import type { Scale } from 'scale-workshop-core'
 
 const props = defineProps<{
-  baseFrequency: number
-  frequencies: number[] // All 128 frequencies
-  centsValues: number[] // All 128 cents values
-  heldNotes: Map<number, number>
+  scale: Scale
+  frequencies: number[]
   baseMidiNote: number
-  labels: string[] // Labels from #1 to the equave
-  colors: string[] // Colors from #1 to the equave
+  keyColors: string[]
 }>()
 
 const rows = computed(() => {
-  const inverseBaseFrequency = 1 / props.baseFrequency
+  const colors = props.keyColors.length ? props.keyColors : ['white']
   return props.frequencies.map((frequency, i) => {
-    const active = (props.heldNotes.get(i) ?? 0) > 0
     const index = i - props.baseMidiNote
-    const ratio = frequency * inverseBaseFrequency
-    const cents = props.centsValues[i]
     return {
       index: i,
-      active,
-      frequency,
-      cents,
-      ratio: ratio,
-      label: props.labels[mmod(index - 1, props.labels.length)],
-      color: props.colors[mmod(index - 1, props.colors.length)],
+      frequency: frequency,
+      cents: props.scale.getCents(index),
+      ratio: props.scale.getRatio(index),
+      name: props.scale.getName(index),
+      keyColor: colors[mmod(index, colors.length)],
       isRoot: index === 0,
-      equave: mmod(index, props.labels.length) === 0
+      equave: mmod(index, props.scale.size) === 0
     }
   })
-})
-
-const tableRows = ref<(typeof TuningTableRow)[] | null>(null)
-
-function centerRootRow() {
-  if (!tableRows.value) {
-    return
-  }
-  for (const row of tableRows.value) {
-    if (row.isRoot) {
-      row.scrollIntoView()
-    }
-  }
-}
-
-function scheduleRootRowCentering() {
-  nextTick(() => {
-    requestAnimationFrame(centerRootRow)
-  })
-}
-
-onMounted(scheduleRootRowCentering)
-
-watch(() => props.baseMidiNote, scheduleRootRowCentering)
-
-defineExpose({
-  centerRootRow: scheduleRootRowCentering
 })
 </script>
 
 <template>
-  <table>
-    <thead>
-      <tr>
-        <th>&nbsp;</th>
-        <th>#</th>
-        <th>Freq</th>
-        <th>Cents</th>
-        <th>Ratio</th>
-        <th>Label</th>
-      </tr>
-    </thead>
-    <tbody>
-      <TuningTableRow v-for="row of rows" :key="row.index" v-bind="row" ref="tableRows" />
-    </tbody>
-  </table>
+  <div class="column tuning-table">
+    <table>
+      <thead>
+        <tr>
+          <th>&nbsp;</th>
+          <th>#</th>
+          <th>Freq</th>
+          <th>Cents</th>
+          <th>Ratio</th>
+          <th>Name</th>
+        </tr>
+      </thead>
+      <tbody>
+        <TuningTableRow v-for="row of rows" :key="row.index" v-bind="row" />
+      </tbody>
+    </table>
+  </div>
 </template>
 
-<style scoped>
-table {
+<style>
+/* Tuning table */
+.tuning-table table {
   width: 100%;
   text-align: center;
-  border-spacing: 0;
+  border-spacing: 0px;
 }
-table th {
+.tuning-table table th {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -94,7 +64,7 @@ table th {
   border-bottom: 1px solid var(--color-border);
   font-weight: bold;
 }
-table table tr:nth-of-type(2n) {
+.tuning-table table tr:nth-of-type(2n) {
   background-color: var(--color-background-soft);
 }
 </style>

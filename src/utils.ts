@@ -1,207 +1,22 @@
-// oxlint-disable erasing-op
-import { gcd, mmod } from 'xen-dev-utils/fraction'
+import { parseChord } from 'scale-workshop-core'
 import { computed, watch, type ComputedRef, type Ref } from 'vue'
-import { evaluateExpression, getSourceVisitor, parseAST } from 'sonic-weave/parser'
-import { Interval, Val } from 'sonic-weave/interval'
-import { repr } from 'sonic-weave/stdlib'
-import { version } from '../package.json'
-import { Scale } from './scale'
-import { getRandomValuesCompat } from './platform-compat'
-import { OCTAVE, FIFTH, TRITAVE } from './constants'
-
-const TAU = 2 * Math.PI
-
-const TWELVE = evaluateExpression('12@', false) as Val
-
-export function capitalizeFirstLetter(str: string) {
-  if (!str.length) {
-    return str
-  }
-  return str[0].toUpperCase() + str.slice(1)
-}
-
-/**
- * Calculate the smallest power of two greater or equal to the input value.
- * @param x Integer to compare to.
- * @returns Smallest `2**n` such that `x <= 2**n`.
- */
-export function ceilPow2(x: number) {
-  return 1 << (32 - Math.clz32(x - 1))
-}
-
-/**
- * Parses a single interval expression and validates that it evaluates to an interval.
- *
- * @param input SonicWeave expression string.
- * @returns Parsed interval value.
- */
-export function parseInterval(input: string) {
-  if (!input.trim()) {
-    throw new Error('No input')
-  }
-  const result = evaluateExpression(input)
-  if (result instanceof Interval) {
-    return result
-  }
-  throw new Error('Must evaluate to an interval')
-}
-
-/**
- * Parses a val expression with a tolerant fallback strategy.
- *
- * If direct parsing fails, this helper retries with an `@` suffix. If both fail,
- * the function returns a cached 12-EDO val.
- *
- * @param input Val expression.
- * @returns Parsed val, or a 12-EDO fallback.
- */
-export function parseVal(input: string) {
-  try {
-    const val = evaluateExpression(input)
-    if (val instanceof Val) {
-      return val
-    }
-  } catch {
-    /* empty */
-  }
-  try {
-    const val = evaluateExpression(input.trim() + '@')
-    if (val instanceof Val) {
-      return val
-    }
-  } catch {
-    /* empty */
-  }
-  return TWELVE
-}
-
-/**
- * Formats a decimal value as a SonicWeave literal.
- *
- * @param amount Decimal value.
- * @param fractionDigits Optional fixed precision.
- * @param real Whether to emit real-flavored notation.
- */
-export function decimalString(amount: number, fractionDigits?: number, real = false) {
-  const result = fractionDigits === undefined ? amount.toString() : amount.toFixed(fractionDigits)
-  if (real) {
-    return result + 'r'
-  }
-  if (result.includes('e')) {
-    return result
-  }
-  return result + 'e'
-}
-
-/**
- * Formats a cent value as a SonicWeave literal.
- *
- * @param cents Cent value.
- * @param fractionDigits Optional fixed precision.
- * @param real Whether to emit real-flavored notation.
- */
-export function centString(cents: number, fractionDigits?: number, real = false) {
-  const result = fractionDigits === undefined ? cents.toString() : cents.toFixed(fractionDigits)
-  if (real) {
-    return result + ' rc'
-  }
-  if (result.includes('e')) {
-    return result + ' c'
-  }
-  if (!result.includes('.')) {
-    return result + '.'
-  }
-  return result
-}
-
-/**
- * Converts a cent value into an interval by formatting and reparsing.
- */
-export function parseCents(cents: number, fractionDigits?: number) {
-  return parseInterval(centString(cents, fractionDigits))
-}
+import { gcd, mmod } from 'xen-dev-utils'
+import { DEFAULT_NUMBER_OF_COMPONENTS } from './constants'
 
 // Split at whitespace, pipes, amps, colons, semicolons and commas
 export const SEPARATOR_RE = /\s|\||&|:|;|,/
 
-/**
- * Tokenizes free-form user input using the standard Scale Workshop separator set.
- */
 export function splitText(text: string) {
   return text.split(SEPARATOR_RE).filter((token) => token.length)
 }
 
-/**
- * Parses a space-separated list of integers.
- */
-export function parseIntegerList(text: string, fallback: number[] = []) {
-  const values = text
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((token) => parseInt(token, 10))
-    .filter((value) => !isNaN(value))
-  return values.length ? values : fallback
+export function parseChordInput(input: string) {
+  return parseChord(input, DEFAULT_NUMBER_OF_COMPONENTS, SEPARATOR_RE)
 }
 
-/**
- * Converts a number of axis steps into a semitone offset by repeating the given vector.
- */
-export function axisOffset(steps: number, deltas: number[]) {
-  if (!steps || !deltas.length) {
-    return 0
-  }
-
-  let offset = 0
-
-  // Note: Only one of the accumulation directions will apply
-  for (let i = 0; i > steps; --i) {
-    offset -= deltas[mmod(i, deltas.length)]
-  }
-  for (let i = 0; i < steps; ++i) {
-    offset += deltas[mmod(i, deltas.length)]
-  }
-
-  return offset
-}
-
-/**
- * Expands SonicWeave source code against default context bindings.
- */
-export function expandCode(source: string) {
-  const visitor = getSourceVisitor()
-  const defaults = visitor.rootContext!.clone()
-  const ast = parseAST(source)
-  visitor.executeProgram(ast)
-  return visitor.expand(defaults)
-}
-
-/**
- * Serializes an array of numbers/strings/intervals into display text.
- */
-export function arrayToString(values: Interval[] | number[] | string[]) {
-  if (!values.length) {
-    return '[]'
-  }
-  if (typeof values[0] === 'number') {
-    return `[${values.map((v) => v.toString()).join(', ')}]`
-  }
-  if (typeof values[0] === 'string') {
-    return `[${values.map((v) => JSON.stringify(v)).join(', ')}]`
-  }
-  const visitor = getSourceVisitor().createExpressionVisitor()
-  return repr.bind(visitor.rootContext)(values as Interval[])
-}
-
-/**
- * Creates a debounced wrapper that delays invocation until input stabilizes.
- *
- * @param func Callback to debounce.
- * @param timeout Debounce window in milliseconds.
- */
-export function debounce<TArgs extends unknown[]>(func: (...args: TArgs) => void, timeout = 300) {
+export function debounce(func: (...args: any[]) => void, timeout = 300) {
   let timer: number
-  return (...args: TArgs) => {
+  return (...args: any[]) => {
     window.clearTimeout(timer)
     timer = window.setTimeout(() => {
       func(...args)
@@ -209,7 +24,7 @@ export function debounce<TArgs extends unknown[]>(func: (...args: TArgs) => void
   }
 }
 
-const MIDI_NOTE_NAMES = ['C♮', 'C♯', 'D♮', 'D♯', 'E♮', 'F♮', 'F♯', 'G♮', 'G♯', 'A♮', 'A♯', 'B♮']
+const MIDI_NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 /**
  * Convert an integer MIDI note number to a name such as A4.
@@ -217,24 +32,12 @@ const MIDI_NOTE_NAMES = ['C♮', 'C♯', 'D♮', 'D♯', 'E♮', 'F♮', 'F♯',
  * @param octaveOffset Defaults to the English standard: 69 = A4. An offset of zero results in the French standard 69 = A5.
  * @returns String representation of the MIDI note number.
  */
-export function midiNoteNumberToName(
-  noteNumber: number,
-  octaveOffset = -1,
-  accidentalStyle: AccidentalStyle = 'ASCII'
-) {
+export function midiNoteNumberToName(noteNumber: number, octaveOffset = -1) {
   const remainder = mmod(noteNumber, 12)
   const quotient = (noteNumber - remainder) / 12 + octaveOffset
-  const result = MIDI_NOTE_NAMES[remainder] + quotient.toString()
-  if (accidentalStyle === 'ASCII') {
-    // SonicWeave is cursed: C-1 parses as C - 1 (variable minus literal)
-    return result.replace('♮', quotient < 0 ? '_' : '').replace('♯', '#')
-  }
-  return result
+  return MIDI_NOTE_NAMES[remainder] + quotient.toString()
 }
 
-/**
- * Sanitizes a user-supplied filename while preserving readability.
- */
 export function sanitizeFilename(input: string) {
   input = input.trim()
   if (!input.length) {
@@ -246,13 +49,7 @@ export function sanitizeFilename(input: string) {
     .replace(/\\/g, '_')
 }
 
-/**
- * Formats large/small numeric values in fixed or exponential form.
- */
 export function formatExponential(x: number, fractionDigits = 3) {
-  if (isNaN(x) || !isFinite(x)) {
-    return x.toString()
-  }
   if (Math.abs(x) < 10000) {
     return x.toFixed(fractionDigits)
   }
@@ -262,9 +59,6 @@ export function formatExponential(x: number, fractionDigits = 3) {
   return (d * Math.round(x * f)).toFixed(fractionDigits) + 'e+' + e.toString()
 }
 
-/**
- * Formats frequency using SI prefixes when useful.
- */
 export function formatHertz(frequency: number, fractionDigits = 3) {
   const magnitude = Math.abs(frequency)
 
@@ -306,7 +100,7 @@ export function formatHertz(frequency: number, fractionDigits = 3) {
   }
 
   // Too large. Use scientific notation.
-  if (magnitude > 1e34 || isNaN(magnitude)) {
+  if (magnitude > 1e34) {
     return formatExponential(frequency) + 'Hz'
   }
 
@@ -384,7 +178,7 @@ export function formatCents(x: number, fractionDigits = 3) {
 
 /**
  * Fill in the gaps of a parent scale (in white) with accidentals (in black).
- * @param generatorPerPeriod Generator size divided by period size (in pitch space).
+ * @param generatorPerPeriod Generator sizre divided by period size (in pitch space).
  * @param size Size of the parent scale.
  * @param down Number of generators to go down from 1/1.
  * @returns Array of key colors.
@@ -392,7 +186,7 @@ export function formatCents(x: number, fractionDigits = 3) {
 export function gapKeyColors(generatorPerPeriod: number, size: number, down: number, flats = true) {
   const scale = [...Array(size).keys()].map((i) => mmod(generatorPerPeriod * (i - down), 1))
   scale.sort((a, b) => a - b)
-  const colors: ('white' | 'black')[] = Array(size).fill('white')
+  const colors = Array(size).fill('white')
 
   let i = size - down
   let delta = 1
@@ -488,18 +282,6 @@ export type AccidentalStyle = 'double' | 'single' | 'ASCII'
 
 const NOMINALS = ['F', 'C', 'G', 'D', 'A', 'E', 'B']
 
-export function convertAccidentals(label: string, style: AccidentalStyle) {
-  if (style === 'double') {
-    // Discriminating between pitches and generic labels not supported.
-    return label
-  }
-  label = label.replaceAll('𝄪', '♯♯').replaceAll('𝄫', '♭♭')
-  if (style === 'single') {
-    return label
-  }
-  return label.replaceAll('♯', '#').replaceAll('♭', 'b')
-}
-
 /**
  * Obtain a nominal with sharps and flats along the chain of fifths starting from C.
  * @param fifthsUp How far clockwise to travel along the spiral of fifths.
@@ -536,81 +318,6 @@ export function spineLabel(fifthsUp: number, style: AccidentalStyle = 'double'):
   return label
 }
 
-const ENHARMONICS = [
-  ['C=', 'B#', 'Dbb'],
-  ['C#', 'Db'],
-  ['D=', 'C##', 'Ebb'],
-  ['Eb', 'D#'],
-  ['E=', 'Fb', 'D##'],
-  ['F=', 'E#', 'Gbb'],
-  ['F#', 'Gb'],
-  ['G=', 'F##', 'Abb'],
-  ['G#', 'Ab'],
-  ['A=', 'G##', 'Bbb'],
-  ['Bb', 'A#'],
-  ['B=', 'Cb', 'A##']
-]
-
-// Find a set of Pythagorean enharmonics corresponding to a MIDI note number
-export function midiNoteNumberToEnharmonics(
-  noteNumber: number,
-  style: AccidentalStyle = 'double',
-  octaveOffset = -1
-) {
-  const remainder = mmod(noteNumber, 12)
-  const quotient = (noteNumber - remainder) / 12 + octaveOffset
-  const enharmonics = ENHARMONICS[remainder]
-  const result = []
-  for (let enharmonic of enharmonics) {
-    if (style === 'double') {
-      enharmonic = enharmonic.replace('bb', '𝄫')
-      enharmonic = enharmonic.replace('##', '𝄪')
-    }
-    if (style === 'single' || style === 'double') {
-      enharmonic = enharmonic.replace(/b/g, '♭')
-      enharmonic = enharmonic.replace(/#/g, '♯')
-      enharmonic = enharmonic.replace('=', '♮')
-    }
-    let octave = quotient.toString()
-    if (enharmonic.startsWith('B') && enharmonics[0].startsWith('C')) {
-      octave = (quotient - 1).toString()
-    }
-    if (enharmonic.startsWith('C') && enharmonics[0].startsWith('B')) {
-      octave = (quotient + 1).toString()
-    }
-    result.push(enharmonic + octave)
-  }
-  return result
-}
-
-const IS_BLACK_MIDI_NOTE = [
-  false, // C
-  true, // C# / Db
-  false, // D
-  true, // D# / Eb
-  false, // E
-  false, // F
-  true, // F# / Gb
-  false, // G
-  true, // G# / Ab
-  false, // A
-  true, // A# / Bb
-  false // B
-]
-
-export function isBlackMidiNote(noteNumber: number) {
-  return IS_BLACK_MIDI_NOTE[mmod(noteNumber, 12)]
-}
-
-export function annotateColors(sourceLines: string[], keyColors: string[]) {
-  if (!keyColors.length) {
-    return
-  }
-  for (let i = 0; i < sourceLines.length; ++i) {
-    sourceLines[i] += ' ' + keyColors[mmod(i + 1, keyColors.length)].replace(/%/g, '')
-  }
-}
-
 /**
  * Synchronize local storage with the values of Vue refs.
  * @param values Vue refs to watch in a `{ref1, ref2}` record.
@@ -619,153 +326,4 @@ export function syncValues(values: Record<string, Ref>) {
   for (const [key, value] of Object.entries(values)) {
     watch(value, (newValue) => window.localStorage.setItem(key, String(newValue)))
   }
-}
-
-export function padEndOrTruncate<T>(array: T[], targetLength: number, padValue: T) {
-  while (array.length < targetLength) {
-    array.push(padValue)
-  }
-  array.length = targetLength
-}
-
-const URL_SAFE_CHARS64 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_'
-
-export function encodeUrlSafe64(n: number) {
-  if (n < 0 || n >= 64 || !Number.isInteger(n)) {
-    throw new Error('Number outside integer range 0-63')
-  }
-  return URL_SAFE_CHARS64[n]
-}
-
-/**
- * Generate a random 9-character identifier
- * @returns Random identifiers with a low chance of collision
- */
-export function randomId() {
-  // Coarse timestamp for indexing in ~30 year cycles
-  const msSince1970 = new Date().valueOf()
-  const hour = Math.floor(msSince1970 / (1000 * 60 * 60))
-  const hourLow = hour & 63
-  const hourMid = (hour >> 5) & 63
-  const hourHigh = (hour >> 10) & 63
-
-  const ns = [hourLow, hourMid, hourHigh]
-
-  // Random segment to avoid collisions within one hour
-  // Chance of collision assuming 1000 identifiers per hour ~ 0.047 %
-  const r = new Uint32Array(1)
-  getRandomValuesCompat(r)
-  for (let i = 0; i < 6; ++i) {
-    ns.push(r[0] & 63)
-    r[0] >>>= 5
-  }
-  // 2 bits of randomness wasted
-
-  return ns.map(encodeUrlSafe64).join('')
-}
-
-export function isRandomId(identifier: string) {
-  if (identifier.length !== 9) {
-    return false
-  }
-  for (const char of identifier) {
-    if (!URL_SAFE_CHARS64.includes(char)) {
-      return false
-    }
-  }
-  return true
-}
-
-export function makeEnvelope(shareStatistics = false) {
-  const sonicWeaveVersion = evaluateExpression('VERSION')
-  const msSince1970 = new Date().valueOf()
-  let navigatorPart = null
-  let userUUID = null
-  if (shareStatistics) {
-    navigatorPart = {
-      userAgent: navigator.userAgent,
-      language: navigator.language,
-      languages: navigator.languages
-    }
-    userUUID = localStorage.getItem('uuid')
-  }
-  return {
-    version,
-    sonicWeaveVersion,
-    msSince1970,
-    navigator: navigatorPart,
-    userUUID
-  }
-}
-
-export function unpackPayload(body: string) {
-  return JSON.parse(body, (key, value) => Interval.reviver(key, Scale.reviver(key, value)))
-}
-
-// Multi-label offsets
-export function labelX(n: number, num: number) {
-  if (num < 3) {
-    return 0
-  }
-  if (num & 1) {
-    // Odd counts exploit a different starting angle.
-    return Math.cos((TAU * n) / num)
-  }
-  // Text tends to extend horizontally so we draw an ellipse.
-  return 1.5 * Math.sin((TAU * n) / num)
-}
-
-export function labelY(n: number, num: number) {
-  if (num === 1) {
-    return -1
-  }
-  if (num & 1) {
-    // Odd counts exploit a different starting angle.
-    return Math.sin((TAU * n) / num)
-  }
-  return -Math.cos((TAU * n) / num)
-}
-
-/**
- * Copy text to the clipboard either through the navigator API or by creating a transient HTML element.
- */
-export const copyText = async (text: string): Promise<boolean> => {
-  if (!text) return false
-
-  const writeClipboardText = navigator.clipboard?.writeText
-
-  if (writeClipboardText) {
-    try {
-      await writeClipboardText.call(navigator.clipboard, text)
-      return true
-    } catch {
-      // Fall back for browsers that do not expose Clipboard API outside secure contexts.
-    }
-  }
-
-  const textArea = document.createElement('textarea')
-  textArea.value = text
-  textArea.style.position = 'fixed'
-  textArea.style.opacity = '0'
-  document.body.append(textArea)
-  textArea.select()
-  const copied = document.execCommand('copy')
-  textArea.remove()
-  return copied
-}
-
-/**
- * Get the name of "equal division of the (blank)" as a short string like "EDO" or "EDT".
- */
-export function nameOfEd(equave: Interval, fallback: string) {
-  if (equave.equals(OCTAVE)) {
-    return 'EDO'
-  } else if (equave.equals(TRITAVE)) {
-    return 'EDT'
-  } else if (equave.equals(FIFTH)) {
-    return 'EDF'
-  } else if (equave.value.isIntegral()) {
-    return `ED${equave.toInteger()}`
-  }
-  return `ED${fallback}`
 }

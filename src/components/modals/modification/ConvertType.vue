@@ -1,50 +1,51 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import Modal from '@/components/ModalDialog.vue'
+import { Fraction } from 'xen-dev-utils'
+import type { IntervalOptions, Scale } from 'scale-workshop-core'
 import { useModalStore } from '@/stores/modal'
-import { useScaleStore } from '@/stores/scale'
-import { centString } from '@/utils'
 
-defineProps<{
+const props = defineProps<{
   show: boolean
+  scale: Scale
+  centsFractionDigits: number
+  decimalFractionDigits: number
 }>()
 
-const emit = defineEmits(['done', 'cancel'])
+const emit = defineEmits(['update:scale', 'cancel'])
 
 const modal = useModalStore()
-const scale = useScaleStore()
 
 const myCentsFractionDigits = ref(3)
 const myDecimalFractionDigits = ref(5)
 
 onMounted(() => {
-  myCentsFractionDigits.value = scale.centsFractionDigits
-  myDecimalFractionDigits.value = scale.decimalFractionDigits
+  myCentsFractionDigits.value = props.centsFractionDigits
+  myDecimalFractionDigits.value = props.decimalFractionDigits
 })
 
-function modify(expand = false) {
-  scale.sourceText += '\n'
-  if (modal.type === 'decimal') {
-    scale.sourceText += `interval => decimal(interval, ${myDecimalFractionDigits.value}) lest interval`
-  } else if (modal.type === 'fraction') {
-    if (modal.fractionTolerance || modal.preferredNumerator || modal.preferredEtEquaveDenominator) {
-      scale.sourceText += `interval => fraction(interval, ${modal.fractionTolerance ? centString(modal.fractionTolerance) : 'niente'}, ${modal.preferredNumerator}, ${modal.preferredDenominator}) lest interval`
-    } else {
-      scale.sourceText += 'interval => fraction(interval) lest interval'
-    }
-  } else if (modal.type === 'nedji') {
-    scale.sourceText += `interval => nedji(interval, ${modal.preferredEtNumerator}, ${modal.preferredEtDenominator}, ${modal.preferredEtEquaveNumerator}, ${modal.preferredEtEquaveDenominator}) lest interval`
-  } else if (modal.type === 'cents') {
-    scale.sourceText += `interval => cents(interval, ${myCentsFractionDigits.value}) lest interval`
-  } else {
-    scale.sourceText += `interval => ${modal.type}(interval) lest interval`
+function modify() {
+  const options: IntervalOptions = {
+    centsFractionDigits: myCentsFractionDigits.value,
+    decimalFractionDigits: myDecimalFractionDigits.value
   }
-  if (expand) {
-    const { visitor, defaults } = scale.getUserScopeVisitor()
-    scale.sourceText = visitor.expand(defaults)
+  if (modal.preferredNumerator) {
+    options.preferredNumerator = modal.preferredNumerator
   }
-  scale.computeScale()
-  emit('done')
+  if (modal.preferredDenominator) {
+    options.preferredDenominator = modal.preferredDenominator
+  }
+  if (modal.preferredEtDenominator) {
+    options.preferredEtDenominator = modal.preferredEtDenominator
+  }
+  if (modal.preferredEtEquaveNumerator) {
+    options.preferredEtEquave = new Fraction(
+      modal.preferredEtEquaveNumerator,
+      modal.preferredEtEquaveDenominator
+    )
+  }
+
+  emit('update:scale', props.scale.asType(modal.type, options))
 }
 </script>
 
@@ -59,12 +60,10 @@ function modify(expand = false) {
         <div class="control">
           <label for="type">Interval type</label>
           <select id="type" class="control" v-model="modal.type">
-            <option value="decimal">Decimal ratio</option>
-            <option value="fraction">Fraction</option>
-            <option value="nedji">NEDJI</option>
             <option value="cents">Cents</option>
-            <option value="FJS">Functional Just System</option>
-            <option value="absoluteFJS">Absolute FJS</option>
+            <option value="ratio">Ratio</option>
+            <option value="equal temperament">Equal temperament</option>
+            <option value="decimal">Decimal ratio</option>
             <option value="monzo">Monzo</option>
           </select>
         </div>
@@ -79,67 +78,41 @@ function modify(expand = false) {
           <input id="decimal-digits" type="number" min="0" v-model="myDecimalFractionDigits" />
         </div>
 
-        <template v-if="modal.type === 'fraction'">
-          <div class="control">
-            <label for="tolerance">Tolerance in cents</label>
-            <input
-              id="tolerance"
-              type="number"
-              min="0"
-              step="0.5"
-              class="control"
-              v-model="modal.fractionTolerance"
-            />
-          </div>
-          <div class="control">
-            <label for="numerator">Preferred numerator *</label>
-            <input id="numerator" type="number" min="0" v-model="modal.preferredNumerator" />
-          </div>
-          <div class="control">
-            <label for="denominator">Preferred denominator *</label>
-            <input id="denominator" type="number" min="0" v-model="modal.preferredDenominator" />
-          </div>
-        </template>
+        <div class="control" v-if="modal.type === 'ratio'">
+          <label for="numerator">Preferred numerator *</label>
+          <input id="numerator" type="number" min="0" v-model="modal.preferredNumerator" />
+        </div>
+        <div class="control" v-if="modal.type === 'ratio'">
+          <label for="denominator">Preferred denominator *</label>
+          <input id="denominator" type="number" min="0" v-model="modal.preferredDenominator" />
+        </div>
 
-        <template v-if="modal.type === 'nedji'">
-          <div class="control">
-            <label for="steps">Preferred number of steps *</label>
-            <input id="steps" type="number" min="0" v-model="modal.preferredEtNumerator" />
-          </div>
-          <div class="control">
-            <label for="edo">Preferred divisions (EDO) *</label>
-            <input id="edo" type="number" min="0" v-model="modal.preferredEtDenominator" />
-          </div>
-          <div class="control" v-if="modal.type === 'nedji'">
-            <label for="eq-numerator">Preferred equave numerator *</label>
-            <input
-              id="eq-numerator"
-              type="number"
-              min="0"
-              v-model="modal.preferredEtEquaveNumerator"
-            />
-          </div>
-          <div class="control" v-if="modal.type === 'nedji'">
-            <label for="eq-denominator">Preferred equave denominator</label>
-            <input
-              id="eq-denominator"
-              type="number"
-              min="0"
-              v-model="modal.preferredEtEquaveDenominator"
-            />
-          </div>
-        </template>
+        <div class="control" v-if="modal.type === 'equal temperament'">
+          <label for="edo">Preferred EDO *</label>
+          <input id="edo" type="number" min="0" v-model="modal.preferredEtDenominator" />
+        </div>
+        <div class="control" v-if="modal.type === 'equal temperament'">
+          <label for="eq-numerator">Preferred equave numerator *</label>
+          <input
+            id="eq-numeraotr"
+            type="number"
+            min="0"
+            v-model="modal.preferredEtEquaveNumerator"
+          />
+        </div>
+        <div class="control" v-if="modal.type === 'equal temperament'">
+          <label for="eq-denominator">Preferred equave denominator</label>
+          <input
+            id="eq-denominator"
+            type="number"
+            min="1"
+            v-model="modal.preferredEtEquaveDenominator"
+          />
+        </div>
 
-        <i v-if="modal.type === 'fraction' || modal.type === 'nedji'"
+        <i v-if="modal.type === 'ratio' || modal.type === 'equal temperament'"
           >*) Value of 0 means no preference.</i
         >
-      </div>
-    </template>
-    <template #footer>
-      <div class="btn-group">
-        <button @click="modify(true)">OK</button>
-        <button @click="$emit('cancel')">Cancel</button>
-        <button @click="modify(false)">Raw</button>
       </div>
     </template>
   </Modal>

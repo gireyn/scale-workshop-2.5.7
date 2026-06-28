@@ -1,30 +1,22 @@
-/**
- * Canonical parse result used by all text importers.
- */
+import type { Scale } from 'scale-workshop-core'
+
 export type ImportResult = {
-  sourceText: string
+  scale: Scale
   name?: string
   baseMidiNote?: number
-  baseFrequency?: number
 }
 
-/**
- * Base class for text-based scale importers.
- */
 export abstract class TextImporter {
-  event?: Event
+  event: Event
 
-  constructor(event?: Event) {
+  constructor(event: Event) {
     this.event = event
   }
 
   abstract parseText(input: string, filename: string): ImportResult
 
-  /**
-   * Reads the selected file and delegates text parsing to the concrete importer.
-   */
   parse() {
-    if (this.event == null || this.event.target == null) {
+    if (this.event.target == null) {
       throw new Error('Missing event target element')
     }
     const target: HTMLInputElement = this.event.target as HTMLInputElement
@@ -38,10 +30,8 @@ export abstract class TextImporter {
     const reader = new FileReader()
 
     return new Promise<ImportResult>((resolve, reject) => {
-      reader.addEventListener('load', () =>
-        resolve(this.parseText(reader.result as string, files[0].name))
-      )
-      reader.addEventListener('error', reject)
+      reader.onload = () => resolve(this.parseText(reader.result as string, files[0].name))
+      reader.onerror = reject
       reader.readAsText(files[0])
     })
   }
