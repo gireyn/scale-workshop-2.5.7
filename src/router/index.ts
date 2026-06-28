@@ -58,6 +58,11 @@ const router = createRouter({
       component: () => import('../views/PreferencesView.vue')
     },
     {
+      path: '/tiangans',
+      name: 'tiangans',
+      component: () => import('../views/VirtualTiangansView.vue')
+    },
+    {
       path: '/synth',
       name: 'synth',
       component: () => import('../views/SynthView.vue')
