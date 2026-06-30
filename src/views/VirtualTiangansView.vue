@@ -69,7 +69,7 @@ const strokeStyle = computed(() => {
             :maxChordRoot="maxOtonalRoot"
             :virtualSynth="audio.virtualSynth"
             :width="514"
-            :height="400"
+            :height="417"
             :lineWidth="2"
             :backgroundRBG="backgroundRBG"
             :fadeAlpha="fadeAlpha"
@@ -122,7 +122,7 @@ const strokeStyle = computed(() => {
             :maxChordRoot="maxUtonalRoot"
             :virtualSynth="audio.virtualSynth"
             :width="514"
-            :height="400"
+            :height="417"
             :lineWidth="2"
             :backgroundRBG="backgroundRBG"
             :fadeAlpha="fadeAlpha"
@@ -212,7 +212,7 @@ main {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  margin-top: 2rem;
+  margin-top: 0.4rem;
 }
 
 .control-item {

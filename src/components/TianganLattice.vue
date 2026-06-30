@@ -151,7 +151,7 @@ const viewBox = computed(() => {
   const margin = 5  // Tight margin around nodes (left, top, bottom)
   const minX = Math.min(...xs) - margin
   const maxX = Math.max(...xs) + margin
-  const minY = Math.min(...ys) - margin * 2
+  const minY = Math.min(...ys) - margin * 2.5
   const maxY = Math.max(...ys) + margin * 2.5
   const legendPadding = 57  // 2/3 of previous to match legend size reduction
   return `${minX} ${minY} ${maxX - minX + legendPadding} ${maxY - minY}`
@@ -223,7 +223,7 @@ for (let x = -1; x <= 0; x++) {
         :key="'node-' + i"
         :cx="node.x"
         :cy="node.y"
-        r="5"
+        r="9"
         :fill="node.isHeld ? node.darkColor : node.color"
         stroke="#666"
         stroke-width="0.5"
@@ -360,7 +360,7 @@ for (let x = -1; x <= 0; x++) {
 }
 .node-label {
   font-family: 'Noto Sans SC', 'SimHei', sans-serif;
-  font-size: 6px;
+  font-size: 6.5px;
   font-weight: bold;
   fill: #000;
   text-anchor: middle;
