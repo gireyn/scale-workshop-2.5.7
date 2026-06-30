@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import VirtualTiangans from '@/components/VirtualTiangans.vue'
 import ChordWheel from '@/components/ChordWheel.vue'
+import TianganLattice from '@/components/TianganLattice.vue'
 import { useAudioStore } from '@/stores/audio'
 import { useStateStore } from '@/stores/state'
 
@@ -48,18 +49,27 @@ const strokeStyle = computed(() => {
 
 <template>
   <main>
-    <!-- UPPER HALF: Chord analysis -->
+    <!-- UPPER 2/3: Three-column analysis -->
     <div class="analysis-section">
-      <div class="chord-wheels">
-        <div class="chord-column">
+      <div class="three-columns">
+        <!-- Column 1: Lattice (larger flex share) -->
+        <div class="col col-lattice">
+          <h2>Lattice</h2>
+          <div class="lattice-wrapper">
+            <TianganLattice :heldNotes="state.heldNotes" :baseIndex="state.baseIndex" />
+          </div>
+        </div>
+
+        <!-- Column 2: Otonal chord + controls (narrower) -->
+        <div class="col col-chord">
           <h2>Otonal chord</h2>
           <ChordWheel
             class="chord-wheel"
             type="otonal"
             :maxChordRoot="maxOtonalRoot"
             :virtualSynth="audio.virtualSynth"
-            :width="500"
-            :height="300"
+            :width="514"
+            :height="400"
             :lineWidth="2"
             :backgroundRBG="backgroundRBG"
             :fadeAlpha="fadeAlpha"
@@ -67,16 +77,52 @@ const strokeStyle = computed(() => {
             :strokeStyle="strokeStyle"
             textColor="red"
           />
+          <!-- Controls placed under otonal chord -->
+          <div class="controls-group">
+            <div class="control-item">
+              <label for="trail-longevity">Trail longevity</label>
+              <input
+                id="trail-longevity"
+                type="number"
+                class="control-input"
+                min="0"
+                max="100"
+                v-model="trailLongevity"
+              />
+            </div>
+            <div class="control-item">
+              <label for="otonal-root">Maximum root (otonal)</label>
+              <input
+                id="otonal-root"
+                type="number"
+                class="control-input"
+                min="1"
+                v-model="maxOtonalRoot"
+              />
+            </div>
+            <div class="control-item">
+              <label for="utonal-root">Maximum root (utonal)</label>
+              <input
+                id="utonal-root"
+                type="number"
+                class="control-input"
+                min="1"
+                v-model="maxUtonalRoot"
+              />
+            </div>
+          </div>
         </div>
-        <div class="chord-column">
+
+        <!-- Column 3: Utonal chord (narrower) -->
+        <div class="col col-chord">
           <h2>Utonal chord</h2>
           <ChordWheel
             class="chord-wheel"
             type="utonal"
             :maxChordRoot="maxUtonalRoot"
             :virtualSynth="audio.virtualSynth"
-            :width="500"
-            :height="300"
+            :width="514"
+            :height="400"
             :lineWidth="2"
             :backgroundRBG="backgroundRBG"
             :fadeAlpha="fadeAlpha"
@@ -86,42 +132,9 @@ const strokeStyle = computed(() => {
           />
         </div>
       </div>
-      <div class="controls-row">
-        <div class="control">
-          <label for="trail-longevity">Trail longevity</label>
-          <input
-            id="trail-longevity"
-            type="number"
-            class="control"
-            min="0"
-            max="100"
-            v-model="trailLongevity"
-          />
-        </div>
-        <div class="control">
-          <label for="otonal-root">Maximum root (otonal)</label>
-          <input
-            id="otonal-root"
-            type="number"
-            class="control"
-            min="1"
-            v-model="maxOtonalRoot"
-          />
-        </div>
-        <div class="control">
-          <label for="utonal-root">Maximum root (utonal)</label>
-          <input
-            id="utonal-root"
-            type="number"
-            class="control"
-            min="1"
-            v-model="maxUtonalRoot"
-          />
-        </div>
-      </div>
     </div>
 
-    <!-- LOWER HALF: Tiangan keyboard -->
+    <!-- LOWER 1/3: Tiangan keyboard -->
     <div class="keyboard-section">
       <VirtualTiangans
         :baseIndex="state.baseIndex"
@@ -141,60 +154,93 @@ main {
   overflow: hidden;
 }
 
-/* Upper half: analysis */
+/* Upper 2/3: analysis */
 .analysis-section {
-  flex: 0 0 auto;
-  padding: 0.5rem 1rem;
+  flex: 2 1 0;
+  padding: 0.5rem 0.75rem;
   overflow-y: auto;
   border-bottom: 2px solid var(--color-border);
+  min-height: 0;
 }
 
-.chord-wheels {
+.three-columns {
   display: flex;
   flex-direction: row;
-  gap: 1rem;
+  gap: 0.75rem;
+  height: 100%;
 }
 
-.chord-column {
-  flex: 1;
+.col {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.col-lattice {
+  flex: 3;
+}
+.col-chord {
+  flex: 2;
 }
 
-.chord-column h2 {
+.col h2 {
   border-bottom: 1px solid var(--color-border);
   font-size: 1.1em;
   font-weight: bold;
   width: 100%;
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-shrink: 0;
 }
 
+/* Lattice column */
+.lattice-wrapper {
+  flex: 1;
+  min-height: 100px;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+/* Chord wheel column */
 .chord-wheel {
   border: 1px solid var(--color-border);
   max-width: 100%;
   height: auto;
+  flex-shrink: 0;
 }
 
-.controls-row {
-  display: flex;
-  flex-direction: row;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin-top: 0.5rem;
-}
-
-.controls-row .control {
+/* Controls under otonal chord */
+.controls-group {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.3rem;
+  margin-top: 2rem;
 }
 
-.controls-row .control label {
+.control-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.control-item label {
   font-weight: bold;
+  font-size: 0.85em;
+  white-space: nowrap;
+  min-width: 8rem;
 }
 
-/* Lower half: keyboard */
+.control-input {
+  padding: 0.3rem;
+  background-color: var(--color-background-soft);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  width: 4rem;
+}
+
+/* Lower 1/3: keyboard */
 .keyboard-section {
-  flex: 1 1 auto;
-  min-height: 120px;
+  flex: 1 1 0;
+  min-height: 80px;
 }
 </style>
