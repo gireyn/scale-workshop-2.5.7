@@ -236,6 +236,7 @@ for (let x = -1; x <= 0; x++) {
         :x="node.x + 0"
         :y="node.y + 2.5"
         class="node-label"
+        font-weight="900"
       ><template v-if="node.char">{{ node.char }}</template></text>
 
       <!-- ===== LEGEND ===== -->
@@ -361,11 +362,12 @@ for (let x = -1; x <= 0; x++) {
 .node-label {
   font-family: 'Noto Sans SC', 'SimHei', sans-serif;
   font-size: 6.5px;
-  font-weight: bold;
   fill: #000;
   text-anchor: middle;
-  stroke: var(--color-background);
-  stroke-width: 0.3;
+  stroke: #fff;
+  stroke-width: 0.75;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
 }
 .legend-grid {
   stroke: #999;
